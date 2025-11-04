@@ -1,16 +1,22 @@
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
+# main.py
+from flask import Flask, jsonify
+from rif_scheduler import RIFScheduler  # importa tu clase
 
-SHEET_ID = "1ioSGAiS7zsrDs7d3w0IE7JsLInNJjXagB9AdyDN2x14"  # <- tu destino
+app = Flask(__name__)
 
-creds = Credentials.from_authorized_user_file("token.json", [
-    "https://www.googleapis.com/auth/spreadsheets"
-])
-svc = build("sheets", "v4", credentials=creds, cache_discovery=False)
+@app.route("/", methods=["GET", "POST"])
+def run_rif():
+    try:
+        scheduler = RIFScheduler()
+        # asumo que tu clase tiene un método para hacer lo que venís haciendo
+        scheduler.run()
+        return jsonify({"status": "ok"}), 200
+    except Exception as e:
+        # logueás el error para verlo en Cloud Run
+        print("Error en run_rif:", e)
+        return jsonify({"status": "error", "detail": str(e)}), 500
 
-meta = svc.spreadsheets().get(
-    spreadsheetId=SHEET_ID, fields="properties(title),sheets(properties(title))"
-).execute()
 
-print("Título:", meta["properties"]["title"])
-print("Pestañas:", [s["properties"]["title"] for s in meta["sheets"]])
+# esto es útil si lo corrés local
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8080)
