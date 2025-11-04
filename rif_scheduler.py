@@ -7,7 +7,8 @@ import sys
 from datetime import datetime, timedelta
 from auth import GoogleSheetsAuth
 from sheet_operations import SheetOperations
-from config import Config as Config
+from config_rif import RIFConfig as Config
+import pandas as pd
 
 
 class RIFScheduler:
@@ -44,9 +45,8 @@ class RIFScheduler:
         try:
             print("Leyendo datos de RIF...")
             data = self.sheet_ops.read_sheet(
-                Config.SOURCE_SHEET_ID,
-                Config.SOURCE_RANGE,
-                Config.SOURCE_SHEET_NAME
+                range_name=Config.RIF_SOURCE_RANGE,
+                sheet_name=Config.SOURCE_SHEET_NAME
             )
             
             if not data or len(data) < 2:
@@ -54,8 +54,8 @@ class RIFScheduler:
                 return None
             
             # Procesar datos (asumiendo que la primera fila son encabezados)
-            headers = data[0]
-            rows = data[1:]
+            headers = data[1]
+            rows = data[2:]
             
             print(f"Datos leídos: {len(rows)} filas")
             return headers, rows
@@ -89,6 +89,7 @@ class RIFScheduler:
         print(f"Columnas encontradas - Maestría: {maestria_idx}, Fecha: {fecha_idx}, Hora: {hora_idx}")
         
         # Procesar cada fila
+        flag = True
         for row_idx, row in enumerate(rows):
             if len(row) <= max(maestria_idx, fecha_idx, hora_idx):
                 continue
@@ -110,10 +111,13 @@ class RIFScheduler:
                     fecha_evento = datetime(año_actual, mes, dia)
                     
                     # Si la fecha ya pasó este año, usar el próximo año
-                    if fecha_evento < datetime.now():
+                    if fecha_evento < datetime.now() and flag:
+                        continue
+                    elif fecha_evento < datetime.now() and not flag:
                         fecha_evento = datetime(año_actual + 1, mes, dia)
                     
                     # Parsear hora
+                    flag=False
                     hora_evento = self.parse_hora(hora_str)
                     
                     if hora_evento:
@@ -178,34 +182,53 @@ class RIFScheduler:
         # Filtrar eventos futuros
         now = datetime.now()
         future_events = [e for e in events_sorted if e['fecha_hora'] > now]
+        rifs_programs={
+            'EDNRIF': False,
+            'EMBARIF': False,
+            'REMBARIF': False,
+            'MBAORIF': False,
+            'MBASRIF': False,
+            'MIMRIF': False,
+            'MKTRIF': False,
+            'MNDRIF': False,
+            'RRHHRIF': False,
+            'FLRIF': False,
+            'FINRIF': False,
+            'MBTRIF': False,
+            'OSFLRIF': False,
+        }
+
+        mapped_programs = self.get_maestria_id_mapping()
         
-        # Tomar los próximos 10
-        next_10 = future_events[:10]
         
-        print(f"Eventos encontrados: {len(events)}")
-        print(f"Eventos futuros: {len(future_events)}")
-        print(f"Próximos 10 seleccionados: {len(next_10)}")
+        for future_event in future_events:
+            if rifs_programs[mapped_programs[future_event['maestria']]]==False:
+                rifs_programs[mapped_programs[future_event['maestria']]] = future_event['fecha']
+
+        print(rifs_programs)
         
-        return next_10
+        return rifs_programs
     
     def get_maestria_id_mapping(self):
         """Obtiene el mapeo de maestrías a IDs"""
         # Mapeo de maestrías a IDs (puedes ajustar según tus datos)
         maestria_mapping = {
-            'MKT': 'MKTRIF',
-            'MRHH': 'RRHHRIF', 
-            'MOSFL': 'OSFLRIF',
-            'EMBA': 'EMBARIF',
-            'MND': 'MNDRIF',
-            'MIM': 'MIMRIF',
-            'MBA Online': 'MBAORIF',
-            'MFIN': 'FINRIF',
-            'MBT': 'MBTRIF',
-            'Fin&Law': 'FLRIF',
-            'MBA Salud': 'MBASRIF',
-            'EDN': 'EDNRIF',
-            'REMBA': 'REMBARIF'
-        }
+                "MBT": "MBTRIF",
+                "FyL": "FLRIF",
+                "EMBA Regional": "REMBARIF",
+                "MBA Salud": "MBASRIF",
+                "MIM": "MIMRIF",
+                "MRHH": "RRHHRIF",
+                "MKT": "MKTRIF",
+                "MND": "MNDRIF",
+                "MBA Online": "MBAORIF",
+                "EMBA": "EMBARIF",
+                "MOSFL": "OSFLRIF",
+                "MFIN": "FINRIF",
+                "MOSFL 2026 Egresados": "OSFLRIF",
+                "Fin&Law": "FLRIF",
+            }
+
         
         return maestria_mapping
     
@@ -217,8 +240,9 @@ class RIFScheduler:
             # Leer datos del sheet destino
             dest_data = self.sheet_ops.read_sheet(
                 Config.DESTINATION_SHEET_ID,
-                Config.DESTINATION_RANGE,
-                Config.DESTINATION_SHEET_NAME
+                Config.RIF_DEST_RANGE,
+                Config.DESTINATION_SHEET_NAME,
+                False
             )
             
             if not dest_data:
@@ -227,53 +251,45 @@ class RIFScheduler:
             
             # Buscar columnas
             headers = dest_data[0]
-            id_idx = None
-            desc_idx = None
+            rows = dest_data[1:]
+
+            # normalizar cada fila al largo del header
+            normalized_rows = []
+            num_cols = len(headers)
+
+            for r in rows:
+                # si la fila viene vacía o más corta, la completo
+                if len(r) < num_cols:
+                    r = r + [""] * (num_cols - len(r))
+                # si viene más larga, la corto
+                elif len(r) > num_cols:
+                    r = r[:num_cols]
+                normalized_rows.append(r)
+
+            # ahora sí se puede crear el DF
+            df = pd.DataFrame(normalized_rows, columns=headers)
+
+            col_id = headers[0]       # primera columna
+            col_desc = headers[2] 
             
-            for i, header in enumerate(headers):
-                header_lower = header.lower()
-                if 'id' in header_lower and ('codigo' in header_lower or 'código' in header_lower):
-                    id_idx = i
-                elif 'description' in header_lower or 'descripcion' in header_lower or 'descripción' in header_lower:
-                    desc_idx = i
-            
-            if id_idx is None or desc_idx is None:
-                print("No se encontraron las columnas ID y Description en el sheet destino")
-                return False
-            
-            print(f"Columnas encontradas - ID: {id_idx}, Description: {desc_idx}")
-            
-            # Obtener mapeo de maestrías
-            maestria_mapping = self.get_maestria_id_mapping()
-            
-            # Crear mapeo de eventos por maestría
-            eventos_por_maestria = {}
-            for evento in next_10_events:
-                maestria = evento['maestria']
-                if maestria in maestria_mapping:
-                    id_maestria = maestria_mapping[maestria]
-                    eventos_por_maestria[id_maestria] = evento
-            
-            # Actualizar descripciones
-            updated_rows = []
-            for row in dest_data:
-                new_row = row[:]
-                if len(new_row) > id_idx and len(new_row) > desc_idx:
-                    id_actual = new_row[id_idx].strip()
-                    
-                    if id_actual in eventos_por_maestria:
-                        evento = eventos_por_maestria[id_actual]
-                        nueva_descripcion = f"Próxima reunión informativa: {evento['fecha']} a las {evento['hora']}"
-                        new_row[desc_idx] = nueva_descripcion
-                        print(f"Actualizando {id_actual}: {nueva_descripcion}")
-                
-                updated_rows.append(new_row)
-            
+            def build_desc(row):
+                id_actual = (row[col_id] or "").strip()
+                if id_actual in next_10_events:
+                    if not next_10_events[id_actual]:
+                        return
+                    evento = next_10_events[id_actual]
+                    return f"Próxima reunión informativa: {evento}"
+                return row[col_desc]
+
+            df[col_desc] = df.apply(build_desc, axis=1)
+
+            # Volver a lista de listas para escribir al sheet
+            updated_data = [headers] + df.values.tolist()
             # Escribir datos actualizados
             self.sheet_ops.write_sheet(
                 Config.DESTINATION_SHEET_ID,
-                updated_rows,
-                Config.DESTINATION_RANGE,
+                updated_data,
+                Config.RIF_DEST_RANGE,
                 Config.DESTINATION_SHEET_NAME
             )
             
@@ -309,11 +325,7 @@ class RIFScheduler:
             if not next_10:
                 print("No hay eventos futuros")
                 return False
-            
-            # Mostrar eventos seleccionados
-            print("\nPróximos 10 eventos seleccionados:")
-            for i, evento in enumerate(next_10, 1):
-                print(f"{i}. {evento['maestria']} - {evento['fecha']} {evento['hora']} ({evento['fecha_hora'].strftime('%d/%m/%Y %H:%M')})")
+
             
             # Actualizar descripciones
             success = self.update_descriptions(next_10)

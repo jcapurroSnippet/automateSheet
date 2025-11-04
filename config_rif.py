@@ -10,23 +10,23 @@ load_dotenv('config.env')
 
 class RIFConfig:
     # IDs de los sheets
-    SOURCE_SHEET_ID = os.getenv('SOURCE_SHEET_ID', 'tu_sheet_id_origen_aqui')
-    DESTINATION_SHEET_ID = os.getenv('DESTINATION_SHEET_ID', 'tu_sheet_id_destino_aqui')
+    SOURCE_SHEET_ID = os.getenv('SOURCE_SHEET_ID', '1RkbgAXnR9bQQSRMUxvXbm_r3m1bnzqIN')
+    DESTINATION_SHEET_ID = os.getenv('DESTINATION_SHEET_ID', '1lwSU9CV4M5hZAHGbqzpMPFuYHsvW0cxl0LTf9L57QXI')
     
     # Rangos específicos para RIF
-    RIF_SOURCE_RANGE = os.getenv('RIF_SOURCE_RANGE', 'A:Z')  # Rango del sheet con datos de RIF
-    RIF_DEST_RANGE = os.getenv('RIF_DEST_RANGE', 'A:Z')      # Rango del sheet destino
+    RIF_SOURCE_RANGE = os.getenv('RIF_SOURCE_RANGE', 'D:F')  # Rango del sheet con datos de RIF
+    RIF_DEST_RANGE = os.getenv('RIF_DEST_RANGE', 'A:M')      # Rango del sheet destino
     
     # Nombres de las hojas
-    SOURCE_SHEET_NAME = os.getenv('SOURCE_SHEET_NAME', 'Hoja1')
-    DESTINATION_SHEET_NAME = os.getenv('DESTINATION_SHEET_NAME', 'Hoja1')
+    SOURCE_SHEET_NAME = os.getenv('SOURCE_SHEET_NAME', 'Status y Solicitud RIFs')
+    DESTINATION_SHEET_NAME = os.getenv('DESTINATION_SHEET_NAME', 'Worksheet')
     
     # Configuración de autenticación
     CREDENTIALS_PATH = os.getenv('CREDENTIALS_PATH', './credentials.json')
     TOKEN_PATH = os.getenv('TOKEN_PATH', './token.json')
     
     # Configuración de la API
-    SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+    SCOPES = ['https://www.googleapis.com/auth/spreadsheets',"https://www.googleapis.com/auth/drive.file","https://www.googleapis.com/auth/drive"]
     
     # Mapeo de maestrías a IDs (ajusta según tus datos)
     MAESTRIA_MAPPING = {

@@ -3,13 +3,15 @@ Módulo de operaciones con Google Sheets
 """
 
 import pandas as pd
-from config import Config
+from config_rif import RIFConfig as Config
+from googleapiclient.discovery import build
+from google.oauth2.credentials import Credentials
 
 class SheetOperations:
     def __init__(self, service):
         self.service = service
     
-    def read_sheet(self, sheet_id, range_name=None, sheet_name=None):
+    def read_sheet(self,  sheet_id=None,range_name=None, sheet_name=None, source=True):
         """
         Lee datos del sheet
         
@@ -22,20 +24,32 @@ class SheetOperations:
             list: Lista de filas con los datos
         """
         try:
-            # Construir el rango completo
+            if source:
+                creds = Credentials.from_authorized_user_file("token.json", ["https://www.googleapis.com/auth/drive"])
+                drive = build("drive", "v3", credentials=creds, cache_discovery=False)
+
+                xlsx_id = Config.SOURCE_SHEET_ID
+                copy = drive.files().copy(
+                    fileId=xlsx_id,
+                    body={"name": "Copia como Sheets", "mimeType": "application/vnd.google-apps.spreadsheet"},
+                    supportsAllDrives=True).execute()
+
+                sheet_id = copy["id"]  # usalo con la Sheets API
+                # Construir el rango completo
+            
             full_range = self._build_range(
                 sheet_name or Config.SOURCE_SHEET_NAME,
-                range_name or Config.SOURCE_RANGE
-            )
+                range_name or Config.RIF_SOURCE_RANGE
+                )
             
             print(f"📖 Leyendo datos de: {sheet_id} - {full_range}")
             
             # Llamar a la API
             result = self.service.spreadsheets().values().get(
                 spreadsheetId=sheet_id,
-                range=full_range
+                range=sheet_name
             ).execute()
-            
+
             values = result.get('values', [])
             print(f"✅ Se leyeron {len(values)} filas del sheet origen")
             
@@ -59,7 +73,7 @@ class SheetOperations:
             # Construir el rango completo
             full_range = self._build_range(
                 sheet_name or Config.DESTINATION_SHEET_NAME,
-                range_name or Config.DESTINATION_RANGE
+                range_name or Config.RIF_DEST_RANGE
             )
             
             print(f"📝 Escribiendo {len(data)} filas en: {sheet_id} - {full_range}")
@@ -93,7 +107,7 @@ class SheetOperations:
             # Construir el rango completo
             full_range = self._build_range(
                 sheet_name or Config.DESTINATION_SHEET_NAME,
-                range_name or Config.DESTINATION_RANGE
+                range_name or Config.RIF_DEST_RANGE
             )
             
             print(f"🧹 Limpiando contenido de: {sheet_id} - {full_range}")
