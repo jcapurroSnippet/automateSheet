@@ -9,6 +9,7 @@ from auth import GoogleSheetsAuth
 from sheet_operations import SheetOperations
 from config_rif import RIFConfig as Config
 import pandas as pd
+from zoneinfo import ZoneInfo
 
 
 class RIFScheduler:
@@ -107,31 +108,31 @@ class RIFScheduler:
                 if len(fecha_parts) == 2:
                     dia, mes = int(fecha_parts[0]), int(fecha_parts[1])
                     # Asumir año actual
+                    tz_ar = ZoneInfo("America/Argentina/Buenos_Aires")
+
                     año_actual = datetime.now().year
-                    fecha_evento = datetime(año_actual, mes, dia)
+                    
+                    if ":" in hora_str:
+                        hora = int(hora_str.split(":")[0])
+                    if "." in hora_str:
+                        hora= int(float(hora_str))
+
+                    fecha_evento = datetime(año_actual, mes, dia,hora, tzinfo=tz_ar)
                     
                     # Si la fecha ya pasó este año, usar el próximo año
-                    if fecha_evento < datetime.now() and flag:
+                    if fecha_evento < datetime.now(tz=tz_ar) and flag:
                         continue
-                    elif fecha_evento < datetime.now() and not flag:
-                        fecha_evento = datetime(año_actual + 1, mes, dia)
+                    elif fecha_evento < datetime.now(tz=tz_ar) and not flag:
+                        fecha_evento = datetime(año_actual + 1, mes, dia,tzinfo=tz_ar)
                     
                     # Parsear hora
                     flag=False
-                    hora_evento = self.parse_hora(hora_str)
                     
-                    if hora_evento:
-                        # Combinar fecha y hora
-                        fecha_hora_evento = fecha_evento.replace(
-                            hour=hora_evento.hour,
-                            minute=hora_evento.minute
-                        )
-                        
-                        events.append({
+                    events.append({
                             'maestria': maestria,
                             'fecha': fecha_str,
                             'hora': hora_str,
-                            'fecha_hora': fecha_hora_evento,
+                            'fecha_hora': fecha_evento,
                             'row_idx': row_idx + 2  # +2 porque empezamos desde fila 2
                         })
                         
@@ -180,10 +181,9 @@ class RIFScheduler:
         events_sorted = sorted(events, key=lambda x: x['fecha_hora'])
         
         # Filtrar eventos futuros
-        now = datetime.now()
+        now = datetime.now(tz=ZoneInfo("America/Argentina/Buenos_Aires"))
         future_events = [e for e in events_sorted if e['fecha_hora'] > now]
         rifs_programs={
-            'EDNRIF': False,
             'EMBARIF': False,
             'REMBARIF': False,
             'MBAORIF': False,
@@ -276,7 +276,7 @@ class RIFScheduler:
                 id_actual = (row[col_id] or "").strip()
                 if id_actual in next_10_events:
                     if not next_10_events[id_actual]:
-                        return
+                        return ''
                     evento = next_10_events[id_actual]
                     return f"Próxima reunión informativa: {evento}"
                 return row[col_desc]
