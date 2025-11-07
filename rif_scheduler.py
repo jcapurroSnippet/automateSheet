@@ -22,13 +22,6 @@ class RIFScheduler:
         try:
             print("Iniciando programador de RIF...")
             
-            # Validar configuración
-            errors = Config.validate()
-            if errors:
-                print("Errores de configuración:")
-                for error in errors:
-                    print(f"  - {error}")
-                return False
             
             # Autenticar
             service = self.auth.authenticate()
@@ -232,18 +225,19 @@ class RIFScheduler:
         
         return maestria_mapping
     
-    def update_descriptions(self, next_10_events):
+    def update_descriptions(self, next_10_events,dest_sheet_id,rif_dest_range,dest_sheet_name,platform):
         """Actualiza las descripciones en el sheet destino"""
         try:
             print("Actualizando descripciones...")
             
             # Leer datos del sheet destino
             dest_data = self.sheet_ops.read_sheet(
-                Config.DESTINATION_SHEET_ID,
-                Config.RIF_DEST_RANGE,
-                Config.DESTINATION_SHEET_NAME,
+                dest_sheet_id,
+                rif_dest_range,
+                dest_sheet_name,
                 False
             )
+
             
             if not dest_data:
                 print("No se pudieron leer los datos del sheet destino")
@@ -269,8 +263,13 @@ class RIFScheduler:
             # ahora sí se puede crear el DF
             df = pd.DataFrame(normalized_rows, columns=headers)
 
-            col_id = headers[0]       # primera columna
-            col_desc = headers[2] 
+            if platform == 'META':
+                col_id = headers[0]       # primera columna
+                col_desc = headers[2] 
+            else:
+                col_id = headers[0]
+                col_desc = headers[7]
+
             
             def build_desc(row):
                 id_actual = (row[col_id] or "").strip()
@@ -281,16 +280,27 @@ class RIFScheduler:
                     return f"Próxima reunión informativa: {evento}"
                 return row[col_desc]
 
+            if platform =='GGL':
+                map_rif = Config.map_rif
+
+                for prog, posibles_claves in map_rif.items():
+                    for clave in posibles_claves:
+                        if clave in next_10_events and next_10_events[clave]:
+                            # usamos el primer valor válido que exista
+                            next_10_events[prog] = next_10_events[clave]
+                            break
+
+
             df[col_desc] = df.apply(build_desc, axis=1)
 
             # Volver a lista de listas para escribir al sheet
             updated_data = [headers] + df.values.tolist()
             # Escribir datos actualizados
             self.sheet_ops.write_sheet(
-                Config.DESTINATION_SHEET_ID,
+                dest_sheet_id,
                 updated_data,
-                Config.RIF_DEST_RANGE,
-                Config.DESTINATION_SHEET_NAME
+                rif_dest_range,
+                dest_sheet_name
             )
             
             print("Descripciones actualizadas exitosamente")
@@ -328,14 +338,16 @@ class RIFScheduler:
 
             
             # Actualizar descripciones
-            success = self.update_descriptions(next_10)
+            success_meta = self.update_descriptions(next_10,Config.DESTINATION_SHEET_ID_META,Config.RIF_DEST_RANGE_META,Config.DESTINATION_SHEET_NAME_META,'META')
+
+            success_ggl = self.update_descriptions(next_10,Config.DESTINATION_SHEET_ID_GGL,Config.RIF_DEST_RANGE_GGL,Config.DESTINATION_SHEET_NAME_GGL,'GGL')
             
-            if success:
+            if success_ggl and success_meta:
                 print("\nProceso completado exitosamente")
             else:
                 print("\nError en el proceso")
             
-            return success
+            return success_meta
             
         except Exception as error:
             print(f"Error en el proceso: {error}")

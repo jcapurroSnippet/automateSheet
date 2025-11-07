@@ -11,15 +11,18 @@ load_dotenv('config.env')
 class RIFConfig:
     # IDs de los sheets
     SOURCE_SHEET_ID = os.getenv('SOURCE_SHEET_ID', '1RkbgAXnR9bQQSRMUxvXbm_r3m1bnzqIN')
-    DESTINATION_SHEET_ID = os.getenv('DESTINATION_SHEET_ID', '1lwSU9CV4M5hZAHGbqzpMPFuYHsvW0cxl0LTf9L57QXI')
+    DESTINATION_SHEET_ID_META = os.getenv('DESTINATION_SHEET_ID_META')
+    DESTINATION_SHEET_ID_GGL = os.getenv('DESTINATION_SHEET_ID_GGL')
     
     # Rangos específicos para RIF
     RIF_SOURCE_RANGE = os.getenv('RIF_SOURCE_RANGE', 'D:F')  # Rango del sheet con datos de RIF
-    RIF_DEST_RANGE = os.getenv('RIF_DEST_RANGE', 'A:M')      # Rango del sheet destino
+    RIF_DEST_RANGE_META = os.getenv('RIF_DEST_RANGE_META')      # Rango del sheet destino
+    RIF_DEST_RANGE_GGL = os.getenv('RIF_DEST_RANGE_GGL')
     
     # Nombres de las hojas
     SOURCE_SHEET_NAME = os.getenv('SOURCE_SHEET_NAME', 'Status y Solicitud RIFs')
-    DESTINATION_SHEET_NAME = os.getenv('DESTINATION_SHEET_NAME', 'Worksheet')
+    DESTINATION_SHEET_NAME_META = os.getenv('DESTINATION_SHEET_NAME_META', 'Worksheet')
+    DESTINATION_SHEET_NAME_GGL = os.getenv('DESTINATION_SHEET_NAME_GGL')
     
     # Configuración de autenticación
     CREDENTIALS_PATH = os.getenv('CREDENTIALS_PATH', './credentials.json')
@@ -28,39 +31,16 @@ class RIFConfig:
     # Configuración de la API
     SCOPES = ['https://www.googleapis.com/auth/spreadsheets',"https://www.googleapis.com/auth/drive.file","https://www.googleapis.com/auth/drive"]
     
-    # Mapeo de maestrías a IDs (ajusta según tus datos)
-    MAESTRIA_MAPPING = {
-        'MKT': 'MKT',
-        'MRHH': 'RRHH', 
-        'MOSFL': 'OSFL',
-        'EMBA': 'EMBA',
-        'MND': 'MND',
-        'MIM': 'MIM',
-        'MIB': 'MIM',
-        'MBA Online': 'MBAO',
-        'MFIN': 'FIN',
-        'MBT': 'MBT',
-        'Fin&Law': 'FL',
-        'MBA Salud': 'MBAS',
-        'EDN': 'EDN',
-        'REMBA': 'REMBA'
-    }
     
-    @classmethod
-    def validate(cls):
-        """Valida la configuración"""
-        errors = []
-        
-        if not os.path.exists('config.env'):
-            errors.append("Archivo config.env no encontrado")
-        
-        if cls.SOURCE_SHEET_ID == 'tu_sheet_id_origen_aqui':
-            errors.append("SOURCE_SHEET_ID no está configurado")
-        
-        if cls.DESTINATION_SHEET_ID == 'tu_sheet_id_destino_aqui':
-            errors.append("DESTINATION_SHEET_ID no está configurado")
-        
-        if not os.path.exists(cls.CREDENTIALS_PATH):
-            errors.append(f"Archivo de credenciales no encontrado: {cls.CREDENTIALS_PATH}")
-        
-        return errors
+    map_rif = {
+            "EMBA": ["EMBARIF"],  
+            "MBAO": ["MBAORIF"],
+            "MIM": ["MIMRIF"],
+            "MKT": ["MKTRIF"],
+            "MND": ["MNDRIF"],
+            "RRHH": ["RRHHRIF"],
+            "FIN": ["FINRIF"],
+            "MBT": ["MBTRIF"],
+            "OSFL": ["OSFLRIF"],
+        }
+    
