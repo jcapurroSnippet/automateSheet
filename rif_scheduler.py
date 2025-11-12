@@ -16,50 +16,65 @@ class RIFScheduler:
     def __init__(self):
         self.auth = GoogleSheetsAuth()
         self.sheet_ops = None
+        self.logs = []
+
+    def _log(self, message):
+        timestamp = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+        formatted_message = f"[{timestamp}] {message}"
+        print(formatted_message)
+        self.logs.append(formatted_message)
+
+    def get_logs(self):
+        return self.logs
     
     def initialize(self):
         """Inicializa la aplicación"""
         try:
-            print("Iniciando programador de RIF...")
+            self._log("Iniciando programador de RIF...")
             
             
             # Autenticar
+            self._log("Autenticando con Google Sheets...")
             service = self.auth.authenticate()
+            self._log("Autenticación completada")
             self.sheet_ops = SheetOperations(service)
+            self._log("Instancia de SheetOperations creada")
             
-            print("Aplicación inicializada correctamente")
+            self._log("Aplicación inicializada correctamente")
             return True
             
         except Exception as error:
-            print(f"Error al inicializar: {error}")
+            self._log(f"Error al inicializar: {error}")
             return False
     
     def read_rif_data(self):
         """Lee los datos de RIF del sheet origen"""
         try:
-            print("Leyendo datos de RIF...")
+            self._log("Leyendo datos de RIF...")
+            self._log(f"Leyendo rango {Config.RIF_SOURCE_RANGE} del sheet {Config.SOURCE_SHEET_NAME}")
             data = self.sheet_ops.read_sheet(
                 range_name=Config.RIF_SOURCE_RANGE,
                 sheet_name=Config.SOURCE_SHEET_NAME
             )
             
             if not data or len(data) < 2:
-                print("No se encontraron datos suficientes")
+                self._log("No se encontraron datos suficientes")
                 return None
             
             # Procesar datos (asumiendo que la primera fila son encabezados)
             headers = data[1]
             rows = data[2:]
             
-            print(f"Datos leídos: {len(rows)} filas")
+            self._log(f"Datos leídos: {len(rows)} filas")
             return headers, rows
             
         except Exception as error:
-            print(f"Error al leer datos: {error}")
+            self._log(f"Error al leer datos: {error}")
             return None
     
     def parse_rif_events(self, headers, rows):
         """Parsea los datos de RIF y extrae eventos válidos"""
+        self._log("Parseando eventos de RIF...")
         events = []
         
         # Buscar índices de columnas
@@ -77,14 +92,15 @@ class RIFScheduler:
                 hora_idx = i
         
         if maestria_idx is None or fecha_idx is None or hora_idx is None:
-            print("No se encontraron las columnas necesarias (maestría, fecha RIF, hora RIF)")
+            self._log("No se encontraron las columnas necesarias (maestría, fecha RIF, hora RIF)")
             return []
         
-        print(f"Columnas encontradas - Maestría: {maestria_idx}, Fecha: {fecha_idx}, Hora: {hora_idx}")
+        self._log(f"Columnas encontradas - Maestría: {maestria_idx}, Fecha: {fecha_idx}, Hora: {hora_idx}")
         
         # Procesar cada fila
         flag = True
         for row_idx, row in enumerate(rows):
+            self._log(f"Procesando fila {row_idx + 2}: {row}")
             if len(row) <= max(maestria_idx, fecha_idx, hora_idx):
                 continue
                 
@@ -93,6 +109,7 @@ class RIFScheduler:
             hora_str = row[hora_idx].strip() if hora_idx < len(row) else ""
             
             if not maestria or not fecha_str:
+                self._log(f"Fila {row_idx + 2} sin maestría o fecha válida. Maestría: '{maestria}', Fecha: '{fecha_str}'")
                 continue
             
             # Parsear fecha (formato DD/MM)
@@ -114,13 +131,16 @@ class RIFScheduler:
                     
                     # Si la fecha ya pasó este año, usar el próximo año
                     if fecha_evento < datetime.now(tz=tz_ar) and flag:
+                        self._log(f"Evento pasado para {maestria} en fila {row_idx + 2}, se omite por flag inicial")
                         continue
                     elif fecha_evento < datetime.now(tz=tz_ar) and not flag:
+                        self._log(f"Evento pasado para {maestria} en fila {row_idx + 2}, ajustando al próximo año")
                         fecha_evento = datetime(año_actual + 1, mes, dia,tzinfo=tz_ar)
                     
                     # Parsear hora
                     flag=False
                     
+                    self._log(f"Evento válido encontrado: {maestria} - {fecha_evento}")
                     events.append({
                             'maestria': maestria,
                             'fecha': fecha_str,
@@ -130,7 +150,7 @@ class RIFScheduler:
                         })
                         
             except (ValueError, IndexError) as e:
-                print(f"Error parseando fecha {fecha_str}: {e}")
+                self._log(f"Error parseando fecha {fecha_str}: {e}")
                 continue
         
         return events
@@ -171,11 +191,13 @@ class RIFScheduler:
             return []
         
         # Ordenar por fecha y hora
+        self._log(f"Seleccionando próximos eventos de {len(events)} encontrados")
         events_sorted = sorted(events, key=lambda x: x['fecha_hora'])
         
         # Filtrar eventos futuros
         now = datetime.now(tz=ZoneInfo("America/Argentina/Buenos_Aires"))
         future_events = [e for e in events_sorted if e['fecha_hora'] > now]
+        self._log(f"Eventos futuros encontrados: {len(future_events)}")
         rifs_programs={
             'EMBARIF': False,
             'REMBARIF': False,
@@ -195,10 +217,18 @@ class RIFScheduler:
         
         
         for future_event in future_events:
-            if rifs_programs[mapped_programs[future_event['maestria']]]==False:
-                rifs_programs[mapped_programs[future_event['maestria']]] = future_event['fecha']
+            maestria = future_event['maestria']
+            if maestria not in mapped_programs:
+                self._log(f"Maestría sin mapeo encontrado: {maestria}")
+                continue
 
-        print(rifs_programs)
+            mapped_key = mapped_programs[maestria]
+            self._log(f"Evaluando evento {maestria} -> {mapped_key} el {future_event['fecha_hora']}")
+
+            if rifs_programs[mapped_key] == False:
+                rifs_programs[mapped_key] = future_event['fecha']
+                self._log(f"Asignado {future_event['fecha']} a {mapped_key}")
+        self._log(f"Asignaciones resultantes: {rifs_programs}")
         
         return rifs_programs
     
@@ -228,9 +258,10 @@ class RIFScheduler:
     def update_descriptions(self, next_10_events,dest_sheet_id,rif_dest_range,dest_sheet_name,platform):
         """Actualiza las descripciones en el sheet destino"""
         try:
-            print("Actualizando descripciones...")
+            self._log("Actualizando descripciones...")
             
             # Leer datos del sheet destino
+            self._log(f"Leyendo sheet destino {dest_sheet_name} ({dest_sheet_id}) rango {rif_dest_range}")
             dest_data = self.sheet_ops.read_sheet(
                 dest_sheet_id,
                 rif_dest_range,
@@ -240,7 +271,7 @@ class RIFScheduler:
 
             
             if not dest_data:
-                print("No se pudieron leer los datos del sheet destino")
+                self._log("No se pudieron leer los datos del sheet destino")
                 return False
             
             # Buscar columnas
@@ -263,9 +294,10 @@ class RIFScheduler:
             # ahora sí se puede crear el DF
             df = pd.DataFrame(normalized_rows, columns=headers)
 
+            self._log(f"Construyendo descripciones para plataforma {platform}")
             if platform == 'META':
                 col_id = headers[0]       # primera columna
-                col_desc = headers[2] 
+                col_desc = headers[2]
             else:
                 col_id = headers[0]
                 col_desc = headers[7]
@@ -288,6 +320,7 @@ class RIFScheduler:
                         if clave in next_10_events and next_10_events[clave]:
                             # usamos el primer valor válido que exista
                             next_10_events[prog] = next_10_events[clave]
+                            self._log(f"Mapeando {clave} -> {prog} con fecha {next_10_events[clave]}")
                             break
 
 
@@ -296,6 +329,7 @@ class RIFScheduler:
             # Volver a lista de listas para escribir al sheet
             updated_data = [headers] + df.values.tolist()
             # Escribir datos actualizados
+            self._log(f"Escribiendo datos actualizados en {dest_sheet_name}")
             self.sheet_ops.write_sheet(
                 dest_sheet_id,
                 updated_data,
@@ -303,54 +337,62 @@ class RIFScheduler:
                 dest_sheet_name
             )
             
-            print("Descripciones actualizadas exitosamente")
+            self._log("Descripciones actualizadas exitosamente")
             return True
             
         except Exception as error:
-            print(f"Error al actualizar descripciones: {error}")
+            self._log(f"Error al actualizar descripciones: {error}")
             return False
     
     def run(self):
         """Ejecuta el proceso completo"""
         try:
-            print("=== PROGRAMADOR DE RIF ===")
-            print(f"Fecha y hora actual: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
-            print()
+            if not self.sheet_ops and not self.initialize():
+                return False
+
+            self._log("=== PROGRAMADOR DE RIF ===")
+            self._log(f"Fecha y hora actual: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+            self._log("")
             
             # Leer datos de RIF
+            self._log("Leyendo información de origen...")
             rif_data = self.read_rif_data()
             if not rif_data:
                 return False
-            
+
             headers, rows = rif_data
-            
+
             # Parsear eventos
+            self._log("Parseando eventos obtenidos...")
             events = self.parse_rif_events(headers, rows)
             if not events:
-                print("No se encontraron eventos válidos")
+                self._log("No se encontraron eventos válidos")
                 return False
-            
+
             # Seleccionar próximos 10
+            self._log("Seleccionando próximos eventos...")
             next_10 = self.select_next_10_events(events)
             if not next_10:
-                print("No hay eventos futuros")
+                self._log("No hay eventos futuros")
                 return False
 
-            
+
             # Actualizar descripciones
+            self._log("Actualizando plataforma META...")
             success_meta = self.update_descriptions(next_10,Config.DESTINATION_SHEET_ID_META,Config.RIF_DEST_RANGE_META,Config.DESTINATION_SHEET_NAME_META,'META')
 
+            self._log("Actualizando plataforma GGL...")
             success_ggl = self.update_descriptions(next_10,Config.DESTINATION_SHEET_ID_GGL,Config.RIF_DEST_RANGE_GGL,Config.DESTINATION_SHEET_NAME_GGL,'GGL')
             
             if success_ggl and success_meta:
-                print("\nProceso completado exitosamente")
+                self._log("Proceso completado exitosamente")
             else:
-                print("\nError en el proceso")
-            
+                self._log("Error en el proceso")
+
             return success_meta
             
         except Exception as error:
-            print(f"Error en el proceso: {error}")
+            self._log(f"Error en el proceso: {error}")
             return False
 
 def main():
