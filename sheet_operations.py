@@ -5,7 +5,7 @@ Módulo de operaciones con Google Sheets
 import pandas as pd
 from config_rif import RIFConfig as Config
 from googleapiclient.discovery import build
-from google.oauth2.credentials import Credentials
+from google.oauth2 import service_account
 
 class SheetOperations:
     def __init__(self, service):
@@ -25,14 +25,25 @@ class SheetOperations:
         """
         try:
             if source:
-                creds = Credentials.from_authorized_user_file("token.json", ["https://www.googleapis.com/auth/drive"])
+                # Usar service account (archivo credentials.json). Asegúrate de que
+                # el Service Account tenga acceso al archivo de origen o que el
+                # archivo haya sido compartido con la cuenta.
+                scopes = [
+                    "https://www.googleapis.com/auth/drive",
+                    "https://www.googleapis.com/auth/spreadsheets",
+                ]
+                creds = service_account.Credentials.from_service_account_file(
+                    "credentials.json",
+                    scopes=scopes
+                )
                 drive = build("drive", "v3", credentials=creds, cache_discovery=False)
 
                 xlsx_id = Config.SOURCE_SHEET_ID
                 copy = drive.files().copy(
                     fileId=xlsx_id,
                     body={"name": "Copia como Sheets", "mimeType": "application/vnd.google-apps.spreadsheet"},
-                    supportsAllDrives=True).execute()
+                    supportsAllDrives=True
+                ).execute()
 
                 sheet_id = copy["id"]  # usalo con la Sheets API
                 # Construir el rango completo
