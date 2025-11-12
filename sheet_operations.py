@@ -2,14 +2,21 @@
 Módulo de operaciones con Google Sheets
 """
 
+import os
 import pandas as pd
 from config_rif import RIFConfig as Config
 from googleapiclient.discovery import build
 from google.oauth2 import service_account
 
 class SheetOperations:
-    def __init__(self, service):
+    def __init__(self, service, credentials=None):
+        """
+        service: cliente de Sheets (googleapiclient.discovery.Resource)
+        credentials: objeto de credenciales (opcional). Si se provee,
+                     se usará para construir clientes adicionales como Drive.
+        """
         self.service = service
+        self.credentials = credentials
     
     def read_sheet(self,  sheet_id=None,range_name=None, sheet_name=None, source=True):
         """
@@ -25,18 +32,42 @@ class SheetOperations:
         """
         try:
             if source:
-                # Usar service account (archivo credentials.json). Asegúrate de que
-                # el Service Account tenga acceso al archivo de origen o que el
-                # archivo haya sido compartido con la cuenta.
-                scopes = [
-                    "https://www.googleapis.com/auth/drive",
-                    "https://www.googleapis.com/auth/spreadsheets",
-                ]
-                creds = service_account.Credentials.from_service_account_file(
-                    "credentials.json",
-                    scopes=scopes
-                )
-                drive = build("drive", "v3", credentials=creds, cache_discovery=False)
+                # Para operaciones de Drive (copiar el XLSX a Sheets) intentamos
+                # usar las mismas credenciales que ya usa la app si están
+                # disponibles vía variable de entorno o ADC. Si `self.service`
+                # (Sheets API) fue inicializado con credenciales que soportan
+                # Drive, podemos reutilizarlas construyendo un cliente Drive con
+                # esas credenciales. En otros casos intentamos cargar
+                # `GOOGLE_SERVICE_ACCOUNT_FILE` o `credentials.json` local.
+                drive_creds = None
+                # Preferir credenciales pasadas al constructor
+                if getattr(self, 'credentials', None):
+                    drive_creds = self.credentials
+
+                # Si no, intentar extraer credenciales desde el cliente Sheets
+                if not drive_creds:
+                    try:
+                        http = getattr(self.service, '_http', None)
+                        if http and getattr(http, 'credentials', None):
+                            drive_creds = http.credentials
+                    except Exception:
+                        drive_creds = None
+
+                # Fallback final: archivo en env o local
+                if not drive_creds:
+                    sa_path = os.environ.get('GOOGLE_SERVICE_ACCOUNT_FILE') or os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON') or 'credentials.json'
+                    try:
+                        scopes = [
+                            "https://www.googleapis.com/auth/drive",
+                            "https://www.googleapis.com/auth/spreadsheets",
+                        ]
+                        # si GOOGLE_SERVICE_ACCOUNT_JSON está presente como string JSON,
+                        # será manejado por auth o por la variable de entorno en runtime.
+                        drive_creds = service_account.Credentials.from_service_account_file(sa_path, scopes=scopes)
+                    except Exception as e:
+                        raise RuntimeError(f"No se pudieron obtener credenciales para Drive: {e}")
+
+                drive = build("drive", "v3", credentials=drive_creds, cache_discovery=False)
 
                 xlsx_id = Config.SOURCE_SHEET_ID
                 copy = drive.files().copy(

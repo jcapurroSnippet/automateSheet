@@ -9,6 +9,7 @@ from google.oauth2.credentials import Credentials
 from google.oauth2.service_account import Credentials as SACredentials
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
+import google.auth
 from config_rif import RIFConfig as Config
 
 class GoogleSheetsAuth:
@@ -47,7 +48,19 @@ class GoogleSheetsAuth:
                         scopes=Config.SCOPES
                     )
 
-            else:
+            # 1b) Intentar Application Default Credentials (útil en Cloud Run / GCE)
+            if not self.credentials:
+                try:
+                    creds, project = google.auth.default(scopes=Config.SCOPES)
+                    if creds:
+                        print("🟢 Usando Application Default Credentials")
+                        self.credentials = creds
+                except Exception:
+                    # no hay ADC disponible, continuar con flujo local
+                    pass
+
+            # Si aún no hay credenciales, intentar flujo local con token/oauth
+            if not self.credentials:
                 # 2) LOCAL: usar token guardado
                 if os.path.exists(Config.TOKEN_PATH):
                     print("📄 Cargando token local existente...")

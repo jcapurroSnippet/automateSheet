@@ -17,4 +17,4 @@ COPY . .
 EXPOSE 8080
 
 # 7) Comando de arranque
-CMD ["python", "main.py"]
+CMD ["gunicorn", "main:app", "--bind", "0.0.0.0:8080", "--workers", "1"]
