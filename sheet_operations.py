@@ -7,6 +7,7 @@ import json
 import pandas as pd
 from config_rif import RIFConfig as Config
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from google.oauth2 import service_account
 
 class SheetOperations:
@@ -19,7 +20,7 @@ class SheetOperations:
         self.service = service
         self.credentials = credentials
     
-    def read_sheet(self,  sheet_id=None,range_name=None, sheet_name=None, source=True):
+    def read_sheet(self,  sheet_id=None, range_name=None, sheet_name=None, source=True, source_type='auto'):
         """
         Lee datos del sheet
         
@@ -32,75 +33,122 @@ class SheetOperations:
             list: Lista de filas con los datos
         """
         try:
-            if source:
-                # Para operaciones de Drive (copiar el XLSX a Sheets) intentamos
-                # usar las mismas credenciales que ya usa la app si están
-                # disponibles vía variable de entorno o ADC. Si `self.service`
-                # (Sheets API) fue inicializado con credenciales que soportan
-                # Drive, podemos reutilizarlas construyendo un cliente Drive con
-                # esas credenciales. En otros casos intentamos cargar
-                # `GOOGLE_SERVICE_ACCOUNT_FILE` o `credentials.json` local.
-                drive_creds = None
-                # 1) Preferir credenciales específicas para Drive (secret o archivo)
-                drive_json = os.environ.get('GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON')
-                drive_file = os.environ.get('GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE')
-                if drive_json:
-                    try:
-                        info = json.loads(drive_json)
+            # Decide comportamiento según el tipo de fuente
+            # source_type: 'sheet' -> leer directamente como Google Sheet usando las credenciales principales (SA/ADC)
+            # source_type: 'drive' -> copiar vía Drive API (usa token/secret específico para Drive)
+            # source_type: 'auto' (default) -> intentar 'sheet' por defecto
+            effective_source = source_type or 'auto'
+
+            if source and effective_source != 'drive':
+                # Leer directamente como Google Sheet usando Sheets API
+                sheet_id = sheet_id or Config.SOURCE_SHEET_ID
+                full_range = self._build_range(
+                    sheet_name or Config.SOURCE_SHEET_NAME,
+                    range_name or Config.RIF_SOURCE_RANGE
+                )
+                print(f"📖 Leyendo datos de (Sheets): {sheet_id} - {full_range}")
+                try:
+                    result = self.service.spreadsheets().values().get(
+                        spreadsheetId=sheet_id,
+                        range=full_range
+                    ).execute()
+                    values = result.get('values', [])
+                    print(f"✅ Se leyeron {len(values)} filas del sheet origen (Sheets)")
+                    return values
+                except HttpError as e:
+                    # Si se pidió auto y obtuvimos notFound, intentamos fallback a Drive
+                    if effective_source == 'auto' and e.status_code == 404:
+                        print("⚠️ Sheet no encontrado vía Sheets API, intentando fallback a Drive para copiar el archivo...")
+                        # caerá a la lógica drive más abajo
+                    else:
+                        raise
+
+            # Si llegamos aquí, queremos usar Drive to copy (source_type == 'drive' o fallback)
+            # Para Drive, preferimos credenciales específicas para Drive (secret o archivo)
+            drive_creds = None
+            # El token/secret puede venir en varias vars. Prioridad:
+            # 1) GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON (service account JSON para Drive)
+            # 2) GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE (path montado)
+            # 3) GOOGLE_TOKEN_JSON (secret con token/sa para Drive)
+            # 4) Config.TOKEN_PATH (token.json local)
+            drive_json = os.environ.get('GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON')
+            drive_file = os.environ.get('GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE')
+            google_token_json = os.environ.get('GOOGLE_TOKEN_JSON')
+            if drive_json:
+                try:
+                    info = json.loads(drive_json)
+                    drive_creds = service_account.Credentials.from_service_account_info(info, scopes=[
+                        "https://www.googleapis.com/auth/drive",
+                        "https://www.googleapis.com/auth/spreadsheets",
+                    ])
+                except Exception as e:
+                    raise RuntimeError(f"Error cargando GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON: {e}")
+            elif drive_file:
+                try:
+                    drive_creds = service_account.Credentials.from_service_account_file(drive_file, scopes=[
+                        "https://www.googleapis.com/auth/drive",
+                        "https://www.googleapis.com/auth/spreadsheets",
+                    ])
+                except Exception as e:
+                    raise RuntimeError(f"Error cargando GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE: {e}")
+
+            # secret token JSON fallback (puede ser service account o credenciales de usuario)
+            if not drive_creds and google_token_json:
+                try:
+                    info = json.loads(google_token_json)
+                    if info.get('type') == 'service_account':
                         drive_creds = service_account.Credentials.from_service_account_info(info, scopes=[
                             "https://www.googleapis.com/auth/drive",
                             "https://www.googleapis.com/auth/spreadsheets",
                         ])
-                    except Exception as e:
-                        raise RuntimeError(f"Error cargando GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON: {e}")
-                elif drive_file:
-                    try:
-                        drive_creds = service_account.Credentials.from_service_account_file(drive_file, scopes=[
-                            "https://www.googleapis.com/auth/drive",
-                            "https://www.googleapis.com/auth/spreadsheets",
-                        ])
-                    except Exception as e:
-                        raise RuntimeError(f"Error cargando GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE: {e}")
-
-                # 2) Fallback: token local (Config.TOKEN_PATH) — mantiene compatibilidad
-                if not drive_creds and os.path.exists(Config.TOKEN_PATH):
-                    try:
-                        # token.json puede ser credenciales de usuario OAuth (google.oauth2.credentials.Credentials)
+                    else:
+                        # credenciales de usuario (token) en memoria
                         from google.oauth2.credentials import Credentials as UserCreds
-                        drive_creds = UserCreds.from_authorized_user_file(Config.TOKEN_PATH, [
+                        drive_creds = UserCreds.from_authorized_user_info(info, scopes=[
                             "https://www.googleapis.com/auth/drive",
                             "https://www.googleapis.com/auth/spreadsheets",
                         ])
+                except Exception:
+                    drive_creds = None
+
+            # token local fallback
+            if not drive_creds and os.path.exists(Config.TOKEN_PATH):
+                try:
+                    from google.oauth2.credentials import Credentials as UserCreds
+                    drive_creds = UserCreds.from_authorized_user_file(Config.TOKEN_PATH, [
+                        "https://www.googleapis.com/auth/drive",
+                        "https://www.googleapis.com/auth/spreadsheets",
+                    ])
+                except Exception:
+                    drive_creds = None
+
+            # last resort: use general credentials passed in
+            if not drive_creds:
+                if getattr(self, 'credentials', None):
+                    drive_creds = self.credentials
+                else:
+                    try:
+                        http = getattr(self.service, '_http', None)
+                        if http and getattr(http, 'credentials', None):
+                            drive_creds = http.credentials
                     except Exception:
                         drive_creds = None
 
-                # 3) Finalmente, si nada específico para Drive, usar las credenciales generales
-                if not drive_creds:
-                    # Preferir credenciales pasadas al constructor (Sheets SA/ADC)
-                    if getattr(self, 'credentials', None):
-                        drive_creds = self.credentials
-                    else:
-                        try:
-                            http = getattr(self.service, '_http', None)
-                            if http and getattr(http, 'credentials', None):
-                                drive_creds = http.credentials
-                        except Exception:
-                            drive_creds = None
+            if not drive_creds:
+                raise RuntimeError("No se pudieron obtener credenciales para Drive. Define GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON/FILE o coloca un token en Config.TOKEN_PATH")
 
-                if not drive_creds:
-                    raise RuntimeError("No se pudieron obtener credenciales para Drive. Define GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON/FILE o coloca un token en Config.TOKEN_PATH")
+            drive = build("drive", "v3", credentials=drive_creds, cache_discovery=False)
 
-                drive = build("drive", "v3", credentials=drive_creds, cache_discovery=False)
+            xlsx_id = sheet_id or Config.SOURCE_SHEET_ID
+            print(f"📦 Copiando archivo Drive {xlsx_id} -> Sheets usando credenciales de Drive")
+            copy = drive.files().copy(
+                fileId=xlsx_id,
+                body={"name": "Copia como Sheets", "mimeType": "application/vnd.google-apps.spreadsheet"},
+                supportsAllDrives=True
+            ).execute()
 
-                xlsx_id = Config.SOURCE_SHEET_ID
-                copy = drive.files().copy(
-                    fileId=xlsx_id,
-                    body={"name": "Copia como Sheets", "mimeType": "application/vnd.google-apps.spreadsheet"},
-                    supportsAllDrives=True
-                ).execute()
-
-                sheet_id = copy["id"]  # usalo con la Sheets API
-                # Construir el rango completo
+            sheet_id = copy["id"]  # usalo con la Sheets API
+            # Construir el rango completo (para lectura posterior)
             
             full_range = self._build_range(
                 sheet_name or Config.SOURCE_SHEET_NAME,
@@ -108,11 +156,11 @@ class SheetOperations:
                 )
             
             print(f"📖 Leyendo datos de: {sheet_id} - {full_range}")
-            
+
             # Llamar a la API
             result = self.service.spreadsheets().values().get(
                 spreadsheetId=sheet_id,
-                range=sheet_name
+                range=full_range
             ).execute()
 
             values = result.get('values', [])
