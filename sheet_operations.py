@@ -3,6 +3,7 @@ Módulo de operaciones con Google Sheets
 """
 
 import os
+import json
 import pandas as pd
 from config_rif import RIFConfig as Config
 from googleapiclient.discovery import build
@@ -40,32 +41,54 @@ class SheetOperations:
                 # esas credenciales. En otros casos intentamos cargar
                 # `GOOGLE_SERVICE_ACCOUNT_FILE` o `credentials.json` local.
                 drive_creds = None
-                # Preferir credenciales pasadas al constructor
-                if getattr(self, 'credentials', None):
-                    drive_creds = self.credentials
-
-                # Si no, intentar extraer credenciales desde el cliente Sheets
-                if not drive_creds:
+                # 1) Preferir credenciales específicas para Drive (secret o archivo)
+                drive_json = os.environ.get('GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON')
+                drive_file = os.environ.get('GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE')
+                if drive_json:
                     try:
-                        http = getattr(self.service, '_http', None)
-                        if http and getattr(http, 'credentials', None):
-                            drive_creds = http.credentials
+                        info = json.loads(drive_json)
+                        drive_creds = service_account.Credentials.from_service_account_info(info, scopes=[
+                            "https://www.googleapis.com/auth/drive",
+                            "https://www.googleapis.com/auth/spreadsheets",
+                        ])
+                    except Exception as e:
+                        raise RuntimeError(f"Error cargando GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON: {e}")
+                elif drive_file:
+                    try:
+                        drive_creds = service_account.Credentials.from_service_account_file(drive_file, scopes=[
+                            "https://www.googleapis.com/auth/drive",
+                            "https://www.googleapis.com/auth/spreadsheets",
+                        ])
+                    except Exception as e:
+                        raise RuntimeError(f"Error cargando GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE: {e}")
+
+                # 2) Fallback: token local (Config.TOKEN_PATH) — mantiene compatibilidad
+                if not drive_creds and os.path.exists(Config.TOKEN_PATH):
+                    try:
+                        # token.json puede ser credenciales de usuario OAuth (google.oauth2.credentials.Credentials)
+                        from google.oauth2.credentials import Credentials as UserCreds
+                        drive_creds = UserCreds.from_authorized_user_file(Config.TOKEN_PATH, [
+                            "https://www.googleapis.com/auth/drive",
+                            "https://www.googleapis.com/auth/spreadsheets",
+                        ])
                     except Exception:
                         drive_creds = None
 
-                # Fallback final: archivo en env o local
+                # 3) Finalmente, si nada específico para Drive, usar las credenciales generales
                 if not drive_creds:
-                    sa_path = os.environ.get('GOOGLE_SERVICE_ACCOUNT_FILE') or os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON') or 'credentials.json'
-                    try:
-                        scopes = [
-                            "https://www.googleapis.com/auth/drive",
-                            "https://www.googleapis.com/auth/spreadsheets",
-                        ]
-                        # si GOOGLE_SERVICE_ACCOUNT_JSON está presente como string JSON,
-                        # será manejado por auth o por la variable de entorno en runtime.
-                        drive_creds = service_account.Credentials.from_service_account_file(sa_path, scopes=scopes)
-                    except Exception as e:
-                        raise RuntimeError(f"No se pudieron obtener credenciales para Drive: {e}")
+                    # Preferir credenciales pasadas al constructor (Sheets SA/ADC)
+                    if getattr(self, 'credentials', None):
+                        drive_creds = self.credentials
+                    else:
+                        try:
+                            http = getattr(self.service, '_http', None)
+                            if http and getattr(http, 'credentials', None):
+                                drive_creds = http.credentials
+                        except Exception:
+                            drive_creds = None
+
+                if not drive_creds:
+                    raise RuntimeError("No se pudieron obtener credenciales para Drive. Define GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON/FILE o coloca un token en Config.TOKEN_PATH")
 
                 drive = build("drive", "v3", credentials=drive_creds, cache_discovery=False)
 
