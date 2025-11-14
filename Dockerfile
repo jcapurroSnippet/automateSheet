@@ -11,12 +11,11 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir gunicorn
 
-# Copiar código
+# Copiar código y credenciales
 COPY . .
 
-# Copiar entrypoint (si existe en la imagen) y asegurarse de permisos
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh || true
+# Asegurarse de que los archivos de credenciales existen y tienen permisos correctos
+RUN chmod 600 credentials.json token.json 2>/dev/null || true
 
 # Exponer puerto
 EXPOSE 8080
@@ -24,5 +23,5 @@ EXPOSE 8080
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost:8080/health || exit 1
 
-# Comando: entrypoint que prepara credenciales y arranca gunicorn
-CMD ["/entrypoint.sh"]
+# Comando: directo con gunicorn (sin entrypoint para simplificar debug)
+CMD exec gunicorn --bind 0.0.0.0:${PORT} --workers 1 --timeout 120 main:app
