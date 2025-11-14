@@ -1,7 +1,5 @@
 # Archivos de configuración sensibles
 config.py
-credentials.json
-token.json
 
 # Variables de entorno
 .env

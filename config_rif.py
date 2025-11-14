@@ -26,7 +26,6 @@ class RIFConfig:
     
     # Configuración de autenticación
     CREDENTIALS_PATH = os.getenv('CREDENTIALS_PATH', './credentials.json')
-    TOKEN_PATH = os.getenv('TOKEN_PATH', './token.json')
     
     # Configuración de la API
     SCOPES = ['https://www.googleapis.com/auth/spreadsheets',"https://www.googleapis.com/auth/drive.file","https://www.googleapis.com/auth/drive"]

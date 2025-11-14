@@ -37,7 +37,9 @@ class RIFScheduler:
             self._log("Autenticando con Google Sheets...")
             service = self.auth.authenticate()
             self._log("Autenticación completada")
-            self.sheet_ops = SheetOperations(service)
+            # Pasar las credenciales (Service Account) a SheetOperations para operaciones Drive
+            creds = self.auth.get_credentials()
+            self.sheet_ops = SheetOperations(service, credentials=creds)
             self._log("Instancia de SheetOperations creada")
             
             self._log("Aplicación inicializada correctamente")

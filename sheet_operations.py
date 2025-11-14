@@ -1,17 +1,25 @@
 """
 Módulo de operaciones con Google Sheets
+Usa OAuth 2.0 (token.json) para acceso a Drive y Sheets
 """
 
 import pandas as pd
 from config_rif import RIFConfig as Config
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request
 
 class SheetOperations:
-    def __init__(self, service):
+    def __init__(self, service, credentials=None):
         self.service = service
+        self.credentials = credentials  # OAuth credentials (de auth.py)
+        self.drive_service = None
+        
+        # Inicializar Drive API si tenemos credenciales
+        if self.credentials:
+            self.drive_service = build("drive", "v3", credentials=self.credentials, cache_discovery=False)
     
-    def read_sheet(self,  sheet_id=None,range_name=None, sheet_name=None, source=True):
+    def read_sheet(self, sheet_id=None, range_name=None, sheet_name=None, source=True):
         """
         Lee datos del sheet
         
@@ -19,39 +27,48 @@ class SheetOperations:
             sheet_id (str): ID del sheet
             range_name (str): Rango a leer (ej: 'A1:Z100')
             sheet_name (str): Nombre de la hoja
+            source (bool): Si True, intenta copiar XLSX de Drive
             
         Returns:
             list: Lista de filas con los datos
         """
         try:
-            if source:
-                creds = Credentials.from_authorized_user_file("token.json", ["https://www.googleapis.com/auth/drive"])
-                drive = build("drive", "v3", credentials=creds, cache_discovery=False)
-
+            if source and sheet_id is None:
+                # Copiar archivo XLSX de Drive a Google Sheets
+                if not self.drive_service:
+                    raise RuntimeError("Drive API no disponible. Verifica que token.json esté presente.")
+                
+                print(f"📋 Copiando archivo de Drive: {Config.SOURCE_SHEET_ID}")
                 xlsx_id = Config.SOURCE_SHEET_ID
-                copy = drive.files().copy(
+                
+                copy = self.drive_service.files().copy(
                     fileId=xlsx_id,
-                    body={"name": "Copia como Sheets", "mimeType": "application/vnd.google-apps.spreadsheet"},
-                    supportsAllDrives=True).execute()
+                    body={
+                        "name": "Copia como Sheets",
+                        "mimeType": "application/vnd.google-apps.spreadsheet"
+                    },
+                    supportsAllDrives=True
+                ).execute()
 
-                sheet_id = copy["id"]  # usalo con la Sheets API
-                # Construir el rango completo
+                sheet_id = copy["id"]
+                print(f"✅ Copia creada: {sheet_id}")
             
+            # Construir rango
             full_range = self._build_range(
                 sheet_name or Config.SOURCE_SHEET_NAME,
                 range_name or Config.RIF_SOURCE_RANGE
-                )
+            )
             
             print(f"📖 Leyendo datos de: {sheet_id} - {full_range}")
             
-            # Llamar a la API
+            # Leer desde Sheets API
             result = self.service.spreadsheets().values().get(
                 spreadsheetId=sheet_id,
-                range=sheet_name
+                range=full_range
             ).execute()
 
             values = result.get('values', [])
-            print(f"✅ Se leyeron {len(values)} filas del sheet origen")
+            print(f"✅ Se leyeron {len(values)} filas del sheet")
             
             return values
             
