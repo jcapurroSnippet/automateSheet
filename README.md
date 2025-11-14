@@ -61,6 +61,32 @@ DESTINATION_SHEET_NAME=Hoja1
 python rif_scheduler.py
 ```
 
+## ☁️ Despliegue en Google Cloud Run
+
+Recomendado: usa Application Default Credentials (ADC) asignando una Service Account con permisos a Cloud Run.
+
+1. Construir la imagen Docker:
+
+```bash
+gcloud builds submit --tag gcr.io/PROJECT_ID/rif-scheduler
+```
+
+2. Desplegar en Cloud Run (asigna la Service Account con acceso a Drive/Sheets):
+
+```bash
+gcloud run deploy rif-scheduler \
+   --image gcr.io/PROJECT_ID/rif-scheduler \
+   --platform managed \
+   --region REGION \
+   --allow-unauthenticated \
+   --set-env-vars "GOOGLE_SERVICE_ACCOUNT_FILE=/secrets/credentials.json"
+```
+
+Notas:
+- En Cloud Run es preferible adjuntar la Service Account del servicio (con permisos de Drive/Sheets) y no subir el JSON. Si adjuntas la cuenta, el runtime obtiene automáticamente ADC y no necesitas `credentials.json`.
+- Si prefieres montar el JSON como secreto, sube el secreto a Secret Manager y móntalo en `/secrets/credentials.json`, o exporta su contenido en la variable `GOOGLE_SERVICE_ACCOUNT_JSON`.
+- Asegúrate de que la Service Account tenga permisos sobre los spreadsheets (compartir los spreadsheets con la cuenta si es necesario).
+
 ## 📊 Estructura de Datos
 
 ### Sheet Origen (Datos de RIF):
