@@ -3,7 +3,6 @@ Módulo de operaciones con Google Sheets
 Usa OAuth 2.0 (token.json) para acceso a Drive y Sheets
 """
 
-import pandas as pd
 from config_rif import RIFConfig as Config
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
@@ -209,6 +208,9 @@ class SheetOperations:
             if not data:
                 return pd.DataFrame()
             
+            # Importar pandas solo cuando sea necesario (reduce memoria en startup)
+            import pandas as pd
+
             # Usar la primera fila como encabezados si es posible
             if len(data) > 1:
                 df = pd.DataFrame(data[1:], columns=data[0])
@@ -233,11 +235,21 @@ class SheetOperations:
             include_headers (bool): Incluir encabezados
         """
         try:
-            # Convertir DataFrame a lista
-            if include_headers:
+            # Convertir DataFrame a lista (import pandas only if df is pandas object)
+            try:
+                # avoid importing pandas unnecessarily
+                import pandas as pd  # noqa: F401
+                is_df = hasattr(df, 'values') and hasattr(df, 'columns')
+            except Exception:
+                is_df = False
+
+            if is_df and include_headers:
                 data = [df.columns.tolist()] + df.values.tolist()
-            else:
+            elif is_df:
                 data = df.values.tolist()
+            else:
+                # assume df is already a list-like
+                data = df
             
             # Escribir al sheet
             self.write_sheet(sheet_id, data, range_name, sheet_name)

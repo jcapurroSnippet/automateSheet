@@ -34,4 +34,4 @@ else
 fi
 
 # Start the application (gunicorn)
-exec gunicorn --bind 0.0.0.0:${PORT:-8080} --workers 1 --timeout 120 main:app
+exec gunicorn --bind 0.0.0.0:${PORT:-8080} --workers 1 --timeout 600 main:app

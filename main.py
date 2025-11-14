@@ -1,6 +1,12 @@
 # main.py
 from flask import Flask, jsonify
-from rif_scheduler import RIFScheduler
+"""
+main.py - Flask entrypoint
+
+Note: import of RIFScheduler is performed lazily inside the request handler to avoid
+heavy imports (pandas, etc.) at worker startup which can cause memory spikes and
+worker timeouts in constrained environments like Cloud Run.
+"""
 
 app = Flask(__name__)
 
@@ -11,6 +17,8 @@ def health():
 
 @app.route("/", methods=["GET", "POST"])
 def run_rif():
+    # Import here to keep worker startup light (avoid loading pandas, etc. at import time)
+    from rif_scheduler import RIFScheduler
     scheduler = RIFScheduler()
     try:
         success = scheduler.run()

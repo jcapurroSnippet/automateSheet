@@ -8,7 +8,6 @@ from datetime import datetime, timedelta
 from auth import GoogleSheetsAuth
 from sheet_operations import SheetOperations
 from config_rif import RIFConfig as Config
-import pandas as pd
 from zoneinfo import ZoneInfo
 
 
@@ -294,6 +293,7 @@ class RIFScheduler:
                 normalized_rows.append(r)
 
             # ahora sí se puede crear el DF
+            import pandas as pd
             df = pd.DataFrame(normalized_rows, columns=headers)
 
             self._log(f"Construyendo descripciones para plataforma {platform}")
