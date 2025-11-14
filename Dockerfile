@@ -20,8 +20,6 @@ RUN chmod 600 credentials.json token.json 2>/dev/null || true
 # Exponer puerto
 EXPOSE 8080
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost:8080/health || exit 1
 
 # Comando: directo con gunicorn (sin entrypoint para simplificar debug)
 CMD exec gunicorn --bind 0.0.0.0:${PORT} --workers 1 --timeout 120 main:app
