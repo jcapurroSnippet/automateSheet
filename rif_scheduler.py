@@ -212,6 +212,7 @@ class RIFScheduler:
             'FINRIF': False,
             'MBTRIF': False,
             'OSFLRIF': False,
+            'FINORIF': False,
         }
 
         mapped_programs = self.get_maestria_id_mapping()
@@ -251,6 +252,7 @@ class RIFScheduler:
                 "MFIN": "FINRIF",
                 "MOSFL 2026 Egresados": "OSFLRIF",
                 "Fin&Law": "FLRIF",
+                "MF Online": "FINORIF",
             }
 
         
@@ -306,7 +308,7 @@ class RIFScheduler:
 
             
             def build_desc(row):
-                id_actual = (row[col_id] or "").strip()
+                id_actual = (row[col_id] or "").strip().replace('V2','')
                 if id_actual in next_10_events:
                     if not next_10_events[id_actual]:
                         return ''
@@ -382,7 +384,6 @@ class RIFScheduler:
             # Actualizar descripciones
             self._log("Actualizando plataforma META...")
             success_meta = self.update_descriptions(next_10,Config.DESTINATION_SHEET_ID_META,Config.RIF_DEST_RANGE_META,Config.DESTINATION_SHEET_NAME_META,'META')
-
             self._log("Actualizando plataforma GGL...")
             success_ggl = self.update_descriptions(next_10,Config.DESTINATION_SHEET_ID_GGL,Config.RIF_DEST_RANGE_GGL,Config.DESTINATION_SHEET_NAME_GGL,'GGL')
             
