@@ -99,7 +99,6 @@ class RIFScheduler:
         self._log(f"Columnas encontradas - Maestría: {maestria_idx}, Fecha: {fecha_idx}, Hora: {hora_idx}")
         
         # Procesar cada fila
-        flag = True
         for row_idx, row in enumerate(rows):
             self._log(f"Procesando fila {row_idx + 2}: {row}")
             if len(row) <= max(maestria_idx, fecha_idx, hora_idx):
@@ -116,39 +115,33 @@ class RIFScheduler:
             # Parsear fecha (formato DD/MM)
             try:
                 fecha_parts = fecha_str.split('/')
-                if len(fecha_parts) == 2:
-                    dia, mes = int(fecha_parts[0]), int(fecha_parts[1])
-                    # Asumir año actual
-                    tz_ar = ZoneInfo("America/Argentina/Buenos_Aires")
+                
+                dia, mes, año = int(fecha_parts[0]), int(fecha_parts[1]), int(fecha_parts[2]) if len(fecha_parts) > 2 else (datetime.now().year)
+                
+                tz_ar = ZoneInfo("America/Argentina/Buenos_Aires")
+                
+                if ":" in hora_str:
+                    hora = int(hora_str.split(":")[0])
+                elif "." in hora_str:
+                    hora= int(float(hora_str))
+                else:
+                    hora = int(hora_str)
+                fecha_evento = datetime(año, mes, dia,hora, tzinfo=tz_ar)
+                
 
-                    año_actual = datetime.now().year
-                    
-                    if ":" in hora_str:
-                        hora = int(hora_str.split(":")[0])
-                    if "." in hora_str:
-                        hora= int(float(hora_str))
-
-                    fecha_evento = datetime(año_actual, mes, dia,hora, tzinfo=tz_ar)
-                    
-                    # Si la fecha ya pasó este año, usar el próximo año
-                    if fecha_evento < datetime.now(tz=tz_ar) and flag:
-                        self._log(f"Evento pasado para {maestria} en fila {row_idx + 2}, se omite por flag inicial")
-                        continue
-                    elif fecha_evento < datetime.now(tz=tz_ar) and not flag:
-                        self._log(f"Evento pasado para {maestria} en fila {row_idx + 2}, ajustando al próximo año")
-                        fecha_evento = datetime(año_actual + 1, mes, dia,tzinfo=tz_ar)
-                    
-                    # Parsear hora
-                    flag=False
-                    
-                    self._log(f"Evento válido encontrado: {maestria} - {fecha_evento}")
-                    events.append({
-                            'maestria': maestria,
-                            'fecha': fecha_str,
-                            'hora': hora_str,
-                            'fecha_hora': fecha_evento,
-                            'row_idx': row_idx + 2  # +2 porque empezamos desde fila 2
-                        })
+                if fecha_evento < datetime.now(tz=tz_ar):
+                    self._log(f"Evento pasado para {maestria} en fila {row_idx + 2}, ajustando al próximo año")
+                    fecha_evento = datetime(año, mes, dia,tzinfo=tz_ar)
+            
+                
+                self._log(f"Evento válido encontrado: {maestria} - {fecha_evento}")
+                events.append({
+                        'maestria': maestria,
+                        'fecha': fecha_str,
+                        'hora': hora_str,
+                        'fecha_hora': fecha_evento,
+                        'row_idx': row_idx + 2  # +2 porque empezamos desde fila 2
+                    })
                         
             except (ValueError, IndexError) as e:
                 self._log(f"Error parseando fecha {fecha_str}: {e}")
