@@ -99,6 +99,7 @@ class RIFScheduler:
         self._log(f"Columnas encontradas - Maestría: {maestria_idx}, Fecha: {fecha_idx}, Hora: {hora_idx}")
         
         # Procesar cada fila
+
         for row_idx, row in enumerate(rows):
             self._log(f"Procesando fila {row_idx + 2}: {row}")
             if len(row) <= max(maestria_idx, fecha_idx, hora_idx):
@@ -116,7 +117,7 @@ class RIFScheduler:
             try:
                 fecha_parts = fecha_str.split('/')
                 
-                dia, mes, año = int(fecha_parts[0]), int(fecha_parts[1]), int(fecha_parts[2]) if len(fecha_parts) > 2 else (datetime.now().year)
+                dia, mes, año = int(fecha_parts[0]), int(fecha_parts[1]), int(fecha_parts[2])+2000 if len(fecha_parts) > 2 else (datetime.now().year)
                 
                 tz_ar = ZoneInfo("America/Argentina/Buenos_Aires")
                 
@@ -128,11 +129,11 @@ class RIFScheduler:
                     hora = int(hora_str)
                 fecha_evento = datetime(año, mes, dia,hora, tzinfo=tz_ar)
                 
+                # Si la fecha ya pasó este año, usar el próximo año
+                if fecha_evento < datetime.now(tz=tz_ar) :
+                    self._log(f"Evento pasado para {maestria} en fila {row_idx + 2}")
+                    continue
 
-                if fecha_evento < datetime.now(tz=tz_ar):
-                    self._log(f"Evento pasado para {maestria} en fila {row_idx + 2}, ajustando al próximo año")
-                    fecha_evento = datetime(año, mes, dia,tzinfo=tz_ar)
-            
                 
                 self._log(f"Evento válido encontrado: {maestria} - {fecha_evento}")
                 events.append({
@@ -221,7 +222,7 @@ class RIFScheduler:
             self._log(f"Evaluando evento {maestria} -> {mapped_key} el {future_event['fecha_hora']}")
 
             if rifs_programs[mapped_key] == False:
-                rifs_programs[mapped_key] = future_event['fecha']
+                rifs_programs[mapped_key] = future_event['fecha'][:5]
                 self._log(f"Asignado {future_event['fecha']} a {mapped_key}")
         self._log(f"Asignaciones resultantes: {rifs_programs}")
         
