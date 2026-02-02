@@ -223,13 +223,17 @@ class RIFScheduler:
             self._log(f"Evaluando evento {maestria} -> {mapped_key} el {future_event['fecha_hora']}")
 
             if rifs_programs[mapped_key] == False:
-                rifs_programs[mapped_key] = future_event['fecha'][:5]
+                fecha = future_event['fecha'][:5]
+                if fecha[-1] == '/':
+                    fecha = fecha[:-1]
+                    fecha = '0' + fecha
+                rifs_programs[mapped_key] = fecha
                 self._log(f"Asignado {future_event['fecha']} a {mapped_key}")
             
             # Si es EMBA, también asignar a EMBAR
-            if maestria == "EMBA" and rifs_programs['EMBARIF'] == False:
-                rifs_programs['EMBARIF'] = future_event['fecha'][:5]
-                self._log(f"Asignado {future_event['fecha']} a EMBAR")
+                if maestria == "EMBA" and rifs_programs['REMBARIF'] == False:
+                    rifs_programs['REMBARIF'] = fecha
+                    self._log(f"Asignado {future_event['fecha']} a EMBAR")
         self._log(f"Asignaciones resultantes: {rifs_programs}")
         
         return rifs_programs
