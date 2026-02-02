@@ -195,6 +195,7 @@ class RIFScheduler:
         self._log(f"Eventos futuros encontrados: {len(future_events)}")
         rifs_programs={
             'EMBARIF': False,
+            'EMBAR': False,
             'REMBARIF': False,
             'MBAORIF': False,
             'MBASRIF': False,
@@ -224,6 +225,11 @@ class RIFScheduler:
             if rifs_programs[mapped_key] == False:
                 rifs_programs[mapped_key] = future_event['fecha'][:5]
                 self._log(f"Asignado {future_event['fecha']} a {mapped_key}")
+            
+            # Si es EMBA, también asignar a EMBAR
+            if maestria == "EMBA" and rifs_programs['EMBAR'] == False:
+                rifs_programs['EMBAR'] = future_event['fecha'][:5]
+                self._log(f"Asignado {future_event['fecha']} a EMBAR")
         self._log(f"Asignaciones resultantes: {rifs_programs}")
         
         return rifs_programs
@@ -234,13 +240,12 @@ class RIFScheduler:
         maestria_mapping = {
                 "MBT": "MBTRIF",
                 "FyL": "FLRIF",
-                "EMBA Regional": "REMBARIF",
                 "MBA Salud": "MBASRIF",
                 "MIM": "MIMRIF",
                 "MRHH": "RRHHRIF",
                 "MKT": "MKTRIF",
                 "MND": "MNDRIF",
-                "MBA Online": "MBAORIF",
+                "MBA's": "MBAORIF",
                 "EMBA": "EMBARIF",
                 "MOSFL": "OSFLRIF",
                 "MFIN": "FINRIF",
