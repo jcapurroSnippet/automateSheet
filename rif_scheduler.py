@@ -227,8 +227,8 @@ class RIFScheduler:
                 self._log(f"Asignado {future_event['fecha']} a {mapped_key}")
             
             # Si es EMBA, también asignar a EMBAR
-            if maestria == "EMBA" and rifs_programs['EMBAR'] == False:
-                rifs_programs['EMBAR'] = future_event['fecha'][:5]
+            if maestria == "EMBA" and rifs_programs['EMBARIF'] == False:
+                rifs_programs['EMBARIF'] = future_event['fecha'][:5]
                 self._log(f"Asignado {future_event['fecha']} a EMBAR")
         self._log(f"Asignaciones resultantes: {rifs_programs}")
         
