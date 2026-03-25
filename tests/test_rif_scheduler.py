@@ -1,8 +1,10 @@
 import csv
 import io
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 from config_rif import RIFConfig as Config
 from rif_scheduler import RIFScheduler
@@ -119,6 +121,25 @@ class RIFSchedulerTests(unittest.TestCase):
         self.assertTrue(
             any('TIKTOK_CATALOG_BUCKET' in log for log in self.scheduler.get_logs())
         )
+
+    def test_select_next_10_events_accepts_embas_from_source_sheet(self):
+        now = datetime.now(tz=ZoneInfo("America/Argentina/Buenos_Aires"))
+        tomorrow = now + timedelta(days=1)
+        fecha = tomorrow.strftime('%d/%m/%y')
+
+        result = self.scheduler.select_next_10_events([
+            {
+                'maestria': 'EMBAs',
+                'fecha': fecha,
+                'hora': '19',
+                'fecha_hora': tomorrow,
+                'row_idx': 2,
+            }
+        ])
+
+        expected_date = fecha[:5]
+        self.assertEqual(result['EMBARIF'], expected_date)
+        self.assertEqual(result['REMBARIF'], expected_date)
 
     def test_run_returns_false_when_any_output_fails(self):
         scheduler = RIFScheduler()

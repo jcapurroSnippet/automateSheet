@@ -357,8 +357,8 @@ class RIFScheduler:
                 rifs_programs[mapped_key] = fecha
                 self._log(f"Asignado {future_event['fecha']} a {mapped_key}")
             
-            # Si es EMBA, también asignar a EMBAR
-                if maestria == "EMBA" and rifs_programs['REMBARIF'] == False:
+            # EMBA y EMBAs comparten fecha con REMBARIF
+                if maestria in {"EMBA", "EMBAs"} and rifs_programs['REMBARIF'] == False:
                     rifs_programs['REMBARIF'] = fecha
                     self._log(f"Asignado {future_event['fecha']} a EMBAR")
         self._log(f"Asignaciones resultantes: {rifs_programs}")
@@ -378,6 +378,7 @@ class RIFScheduler:
                 "MND": "MNDRIF",
                 "MBA's": "MBAORIF",
                 "EMBA": "EMBARIF",
+                "EMBAs": "EMBARIF",
                 "MOSFL": "OSFLRIF",
                 "MFIN": "FINRIF",
                 "MOSFL 2026 Egresados": "OSFLRIF",
