@@ -1,6 +1,5 @@
 import csv
 import io
-import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -43,6 +42,14 @@ class RIFSchedulerTests(unittest.TestCase):
     def setUp(self):
         self.scheduler = RIFScheduler()
 
+    def build_meta_data(self):
+        return [
+            ['id', 'title', 'description', 'availability', 'condition', 'price', 'link', 'image_link', 'brand', 'gender', 'age_group', 'gtin', 'additional_image_link'],
+            ['EMBARIFV2', 'Executive MBA', 'Original', 'in stock', 'new', '10', 'https://example.com/emba', 'https://img/emba.png', 'UdeSA', 'unisex', 'adult', '', 'https://img/a.png|https://img/b.png'],
+            ['MBASRIF', 'MBA Salud', '', 'in stock', 'new', '10', 'https://example.com/mbas', 'https://img/mbas.png', 'UdeSA', 'unisex', 'adult', '', ''],
+            ['EMBA', 'Executive MBA', 'Keep', 'in stock', 'new', '10', 'https://example.com/emba-dual', 'https://img/emba-dual.png', 'UdeSA', 'unisex', 'adult', '', ''],
+        ]
+
     def test_build_rif_description_updates_known_rif_ids(self):
         next_10_events = {
             'EMBARIF': '25/03',
@@ -62,30 +69,24 @@ class RIFSchedulerTests(unittest.TestCase):
             'Original'
         )
 
+    def test_build_tiktok_catalog_rows_uses_meta_sheet_data(self):
+        rows = self.scheduler.build_tiktok_catalog_rows(self.build_meta_data())
+
+        self.assertEqual(rows[0]['sku_id'], 'EMBARIFV2')
+        self.assertEqual(rows[0]['title'], 'Executive MBA')
+        self.assertEqual(rows[0]['description'], 'Original')
+        self.assertEqual(rows[0]['additional_image_link'], 'https://img/a.png,https://img/b.png')
+        self.assertEqual(rows[2]['sku_id'], 'EMBA')
+        self.assertEqual(list(rows[0].keys()), list(self.scheduler.TIKTOK_CATALOG_HEADERS))
+
     def test_export_tiktok_catalog_updates_csv_and_uploads_to_gcs(self):
-        csv_content = "\n".join([
-            "sku_id,title,description,additional_image_link",
-            'EMBARIFV2,Executive MBA,Original,"https://img/a.png,https://img/b.png"',
-            'MBASRIF,MBA Salud,Original,',
-            'EMBA,Executive MBA,Keep,',
-            "",
-        ])
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            source_path = Path(temp_dir) / "catalog.csv"
-            source_path.write_text(csv_content, encoding='utf-8-sig')
-
-            fake_client = FakeStorageClient()
-            success = self.scheduler.export_tiktok_catalog(
-                {
-                    'EMBARIF': '25/03',
-                    'MBASRIF': False,
-                },
-                source_file=str(source_path),
-                bucket_name='bucket-test',
-                object_name='catalogs/catalog_tiktok.csv',
-                storage_client=fake_client
-            )
+        fake_client = FakeStorageClient()
+        success = self.scheduler.export_tiktok_catalog(
+            bucket_name='bucket-test',
+            object_name='catalogs/catalog_tiktok.csv',
+            storage_client=fake_client,
+            meta_data=self.build_meta_data()
+        )
 
         self.assertTrue(success)
         self.assertEqual(fake_client.last_bucket.name, 'bucket-test')
@@ -95,7 +96,7 @@ class RIFSchedulerTests(unittest.TestCase):
         uploaded_text = fake_client.last_bucket.last_blob.uploaded_bytes.decode('utf-8-sig')
         parsed_rows = list(csv.DictReader(io.StringIO(uploaded_text)))
 
-        self.assertEqual(parsed_rows[0]['description'], 'Próxima reunión informativa: 25/03')
+        self.assertEqual(parsed_rows[0]['description'], 'Original')
         self.assertEqual(parsed_rows[1]['description'], '')
         self.assertEqual(parsed_rows[2]['description'], 'Keep')
         self.assertEqual(
@@ -104,23 +105,15 @@ class RIFSchedulerTests(unittest.TestCase):
         )
         self.assertEqual(
             list(parsed_rows[0].keys()),
-            ['sku_id', 'title', 'description', 'additional_image_link']
+            list(self.scheduler.TIKTOK_CATALOG_HEADERS)
         )
 
     def test_export_tiktok_catalog_fails_when_bucket_is_missing(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            source_path = Path(temp_dir) / "catalog.csv"
-            source_path.write_text(
-                "sku_id,title,description\nEMBARIF,Executive MBA,Original\n",
-                encoding='utf-8-sig'
+        with patch.object(Config, 'TIKTOK_CATALOG_BUCKET', ''):
+            success = self.scheduler.export_tiktok_catalog(
+                bucket_name='',
+                meta_data=self.build_meta_data()
             )
-
-            with patch.object(Config, 'TIKTOK_CATALOG_BUCKET', ''):
-                success = self.scheduler.export_tiktok_catalog(
-                    {'EMBARIF': '25/03'},
-                    source_file=str(source_path),
-                    bucket_name=''
-                )
 
         self.assertFalse(success)
         self.assertTrue(

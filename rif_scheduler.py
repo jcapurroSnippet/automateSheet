@@ -16,6 +16,22 @@ from zoneinfo import ZoneInfo
 
 
 class RIFScheduler:
+    TIKTOK_CATALOG_HEADERS = (
+        'sku_id',
+        'title',
+        'description',
+        'availability',
+        'condition',
+        'price',
+        'link',
+        'image_link',
+        'brand',
+        'gender',
+        'age_group',
+        'gtin',
+        'additional_image_link',
+    )
+
     def __init__(self):
         self.auth = GoogleSheetsAuth()
         self.sheet_ops = None
@@ -61,14 +77,81 @@ class RIFScheduler:
 
         return platform_events
 
-    def resolve_tiktok_catalog_source(self, source_file=None):
-        """Resuelve la ruta del catálogo base de TikTok."""
-        catalog_source = Path(source_file or Config.TIKTOK_CATALOG_SOURCE_FILE)
+    @staticmethod
+    def normalize_rows(headers, rows):
+        """Normaliza filas tabulares al largo del header."""
+        normalized_rows = []
+        num_cols = len(headers)
 
-        if not catalog_source.is_absolute():
-            catalog_source = Path(__file__).resolve().parent / catalog_source
+        for row in rows:
+            if len(row) < num_cols:
+                row = row + [""] * (num_cols - len(row))
+            elif len(row) > num_cols:
+                row = row[:num_cols]
 
-        return catalog_source
+            normalized_rows.append(row)
+
+        return normalized_rows
+
+    @staticmethod
+    def normalize_additional_image_link(raw_value):
+        """Convierte separadores del sheet de Meta al formato esperado por TikTok."""
+        if not raw_value:
+            return ""
+
+        parts = [part.strip() for part in str(raw_value).split('|')]
+        return ",".join(part for part in parts if part)
+
+    def build_tiktok_catalog_rows(self, meta_data):
+        """Construye filas de TikTok usando el sheet de Meta como fuente."""
+        if not meta_data:
+            raise ValueError("No se pudieron leer los datos del sheet de Meta para TikTok")
+
+        meta_headers = meta_data[0]
+        meta_rows = self.normalize_rows(meta_headers, meta_data[1:])
+        header_positions = {header.strip().lower(): idx for idx, header in enumerate(meta_headers)}
+
+        required_columns = {
+            'id',
+            'title',
+            'description',
+            'availability',
+            'condition',
+            'price',
+            'link',
+            'image_link',
+            'brand',
+            'gender',
+            'age_group',
+            'gtin',
+            'additional_image_link',
+        }
+        missing_columns = required_columns - set(header_positions)
+        if missing_columns:
+            missing = ", ".join(sorted(missing_columns))
+            raise ValueError(f"Faltan columnas obligatorias en el sheet de Meta para TikTok: {missing}")
+
+        tiktok_rows = []
+        for row in meta_rows:
+            tiktok_rows.append({
+                'sku_id': row[header_positions['id']],
+                'title': row[header_positions['title']],
+                'description': row[header_positions['description']],
+                'availability': row[header_positions['availability']],
+                'condition': row[header_positions['condition']],
+                'price': row[header_positions['price']],
+                'link': row[header_positions['link']],
+                'image_link': row[header_positions['image_link']],
+                'brand': row[header_positions['brand']],
+                'gender': row[header_positions['gender']],
+                'age_group': row[header_positions['age_group']],
+                'gtin': row[header_positions['gtin']],
+                'additional_image_link': self.normalize_additional_image_link(
+                    row[header_positions['additional_image_link']]
+                ),
+            })
+
+        return tiktok_rows
     
     def initialize(self):
         """Inicializa la aplicación"""
@@ -328,22 +411,9 @@ class RIFScheduler:
             headers = dest_data[0]
             rows = dest_data[1:]
 
-            # normalizar cada fila al largo del header
-            normalized_rows = []
-            num_cols = len(headers)
-
-            for r in rows:
-                # si la fila viene vacía o más corta, la completo
-                if len(r) < num_cols:
-                    r = r + [""] * (num_cols - len(r))
-                # si viene más larga, la corto
-                elif len(r) > num_cols:
-                    r = r[:num_cols]
-                normalized_rows.append(r)
-
             # ahora sí se puede crear el DF
             import pandas as pd
-            df = pd.DataFrame(normalized_rows, columns=headers)
+            df = pd.DataFrame(self.normalize_rows(headers, rows), columns=headers)
             platform_events = self.get_platform_events(next_10_events, platform)
 
             self._log(f"Construyendo descripciones para plataforma {platform}")
@@ -382,43 +452,34 @@ class RIFScheduler:
             self._log(f"Error al actualizar descripciones: {error}")
             return False
 
-    def export_tiktok_catalog(self, next_10_events, source_file=None, bucket_name=None, object_name=None, storage_client=None):
-        """Actualiza el catálogo de TikTok y lo publica en Google Cloud Storage."""
+    def export_tiktok_catalog(self, bucket_name=None, object_name=None, storage_client=None, meta_data=None):
+        """Construye el catálogo de TikTok desde el sheet de Meta y lo publica en GCS."""
         temp_path = None
 
         try:
-            source_path = self.resolve_tiktok_catalog_source(source_file)
             bucket_name = bucket_name or Config.TIKTOK_CATALOG_BUCKET
-            object_name = object_name or Config.TIKTOK_CATALOG_OBJECT or source_path.name
-
-            if not source_path.exists():
-                raise FileNotFoundError(f"No se encontró el catálogo base de TikTok: {source_path}")
+            object_name = object_name or Config.TIKTOK_CATALOG_OBJECT
 
             if not bucket_name:
                 raise ValueError("Falta configurar TIKTOK_CATALOG_BUCKET")
 
-            self._log(f"Leyendo catálogo TikTok desde {source_path}")
-            with source_path.open('r', encoding='utf-8-sig', newline='') as catalog_file:
-                reader = csv.DictReader(catalog_file)
-                fieldnames = reader.fieldnames
+            if meta_data is None:
+                if not self.sheet_ops:
+                    raise ValueError("SheetOperations no está inicializado para construir el catálogo de TikTok")
 
-                if not fieldnames:
-                    raise ValueError("El catálogo de TikTok no tiene encabezados")
+                self._log(
+                    f"Leyendo sheet de Meta para TikTok {Config.DESTINATION_SHEET_NAME_META} "
+                    f"({Config.DESTINATION_SHEET_ID_META}) rango {Config.RIF_DEST_RANGE_META}"
+                )
+                meta_data = self.sheet_ops.read_sheet(
+                    Config.DESTINATION_SHEET_ID_META,
+                    Config.RIF_DEST_RANGE_META,
+                    Config.DESTINATION_SHEET_NAME_META,
+                    False
+                )
 
-                missing_columns = {'sku_id', 'description'} - set(fieldnames)
-                if missing_columns:
-                    missing = ", ".join(sorted(missing_columns))
-                    raise ValueError(f"Faltan columnas obligatorias en el catálogo de TikTok: {missing}")
-
-                rows = []
-                for row in reader:
-                    normalized_row = {field: (row.get(field) or "") for field in fieldnames}
-                    normalized_row['description'] = self.build_rif_description(
-                        normalized_row.get('sku_id'),
-                        normalized_row.get('description', ''),
-                        next_10_events
-                    )
-                    rows.append(normalized_row)
+            rows = self.build_tiktok_catalog_rows(meta_data)
+            self._log(f"Construyendo CSV de TikTok desde Meta con {len(rows)} filas")
 
             with tempfile.NamedTemporaryFile(
                 mode='w',
@@ -428,7 +489,7 @@ class RIFScheduler:
                 delete=False,
                 dir=tempfile.gettempdir()
             ) as temp_file:
-                writer = csv.DictWriter(temp_file, fieldnames=fieldnames)
+                writer = csv.DictWriter(temp_file, fieldnames=self.TIKTOK_CATALOG_HEADERS)
                 writer.writeheader()
                 writer.writerows(rows)
                 temp_path = Path(temp_file.name)
@@ -491,7 +552,7 @@ class RIFScheduler:
             self._log("Actualizando plataforma GGL...")
             success_ggl = self.update_descriptions(next_10,Config.DESTINATION_SHEET_ID_GGL,Config.RIF_DEST_RANGE_GGL,Config.DESTINATION_SHEET_NAME_GGL,'GGL')
             self._log("Actualizando catálogo TikTok...")
-            success_tiktok = self.export_tiktok_catalog(next_10)
+            success_tiktok = self.export_tiktok_catalog()
 
             if success_ggl and success_meta and success_tiktok:
                 self._log("Proceso completado exitosamente")

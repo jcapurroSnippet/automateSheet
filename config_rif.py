@@ -25,7 +25,6 @@ class RIFConfig:
     DESTINATION_SHEET_NAME_GGL = os.getenv('DESTINATION_SHEET_NAME_GGL')
 
     # Catálogo TikTok
-    TIKTOK_CATALOG_SOURCE_FILE = os.getenv('TIKTOK_CATALOG_SOURCE_FILE', 'Catalog_TikTok_from_Meta.csv')
     TIKTOK_CATALOG_BUCKET = os.getenv('TIKTOK_CATALOG_BUCKET', 'catalogo_tiktok')
     TIKTOK_CATALOG_OBJECT = os.getenv('TIKTOK_CATALOG_OBJECT', 'Catalog_TikTok_from_Meta.csv')
     
