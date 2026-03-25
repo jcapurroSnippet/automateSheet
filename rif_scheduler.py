@@ -3,8 +3,12 @@ Script para programar reuniones informativas (RIF) de maestrías
 Toma datos de un sheet, selecciona los próximos 10 eventos y actualiza las descripciones
 """
 
+import csv
 import sys
-from datetime import datetime, timedelta
+import tempfile
+from datetime import datetime
+from pathlib import Path
+
 from auth import GoogleSheetsAuth
 from sheet_operations import SheetOperations
 from config_rif import RIFConfig as Config
@@ -25,6 +29,46 @@ class RIFScheduler:
 
     def get_logs(self):
         return self.logs
+
+    @staticmethod
+    def normalize_catalog_id(catalog_id):
+        """Normaliza IDs de catálogo para compararlos contra los IDs RIF."""
+        return (catalog_id or "").strip().replace('V2', '')
+
+    def build_rif_description(self, catalog_id, current_description, next_10_events):
+        """Construye la descripción según el próximo evento disponible."""
+        normalized_id = self.normalize_catalog_id(catalog_id)
+
+        if normalized_id in next_10_events:
+            if not next_10_events[normalized_id]:
+                return ''
+
+            return f"Próxima reunión informativa: {next_10_events[normalized_id]}"
+
+        return current_description or ""
+
+    def get_platform_events(self, next_10_events, platform):
+        """Devuelve el mapping de eventos adaptado a cada plataforma."""
+        platform_events = dict(next_10_events)
+
+        if platform == 'GGL':
+            for prog, posibles_claves in Config.map_rif.items():
+                for clave in posibles_claves:
+                    if clave in platform_events and platform_events[clave]:
+                        platform_events[prog] = platform_events[clave]
+                        self._log(f"Mapeando {clave} -> {prog} con fecha {platform_events[clave]}")
+                        break
+
+        return platform_events
+
+    def resolve_tiktok_catalog_source(self, source_file=None):
+        """Resuelve la ruta del catálogo base de TikTok."""
+        catalog_source = Path(source_file or Config.TIKTOK_CATALOG_SOURCE_FILE)
+
+        if not catalog_source.is_absolute():
+            catalog_source = Path(__file__).resolve().parent / catalog_source
+
+        return catalog_source
     
     def initialize(self):
         """Inicializa la aplicación"""
@@ -300,6 +344,7 @@ class RIFScheduler:
             # ahora sí se puede crear el DF
             import pandas as pd
             df = pd.DataFrame(normalized_rows, columns=headers)
+            platform_events = self.get_platform_events(next_10_events, platform)
 
             self._log(f"Construyendo descripciones para plataforma {platform}")
             if platform == 'META':
@@ -309,27 +354,13 @@ class RIFScheduler:
                 col_id = headers[0]
                 col_desc = headers[7]
 
-            
+
             def build_desc(row):
-                id_actual = (row[col_id] or "").strip().replace('V2','')
-                if id_actual in next_10_events:
-                    if not next_10_events[id_actual]:
-                        return ''
-                    evento = next_10_events[id_actual]
-                    return f"Próxima reunión informativa: {evento}"
-                return row[col_desc]
-
-            if platform =='GGL':
-                map_rif = Config.map_rif
-
-                for prog, posibles_claves in map_rif.items():
-                    for clave in posibles_claves:
-                        if clave in next_10_events and next_10_events[clave]:
-                            # usamos el primer valor válido que exista
-                            next_10_events[prog] = next_10_events[clave]
-                            self._log(f"Mapeando {clave} -> {prog} con fecha {next_10_events[clave]}")
-                            break
-
+                return self.build_rif_description(
+                    row[col_id],
+                    row[col_desc],
+                    platform_events
+                )
 
             df[col_desc] = df.apply(build_desc, axis=1)
 
@@ -350,7 +381,77 @@ class RIFScheduler:
         except Exception as error:
             self._log(f"Error al actualizar descripciones: {error}")
             return False
-    
+
+    def export_tiktok_catalog(self, next_10_events, source_file=None, bucket_name=None, object_name=None, storage_client=None):
+        """Actualiza el catálogo de TikTok y lo publica en Google Cloud Storage."""
+        temp_path = None
+
+        try:
+            source_path = self.resolve_tiktok_catalog_source(source_file)
+            bucket_name = bucket_name or Config.TIKTOK_CATALOG_BUCKET
+            object_name = object_name or Config.TIKTOK_CATALOG_OBJECT or source_path.name
+
+            if not source_path.exists():
+                raise FileNotFoundError(f"No se encontró el catálogo base de TikTok: {source_path}")
+
+            if not bucket_name:
+                raise ValueError("Falta configurar TIKTOK_CATALOG_BUCKET")
+
+            self._log(f"Leyendo catálogo TikTok desde {source_path}")
+            with source_path.open('r', encoding='utf-8-sig', newline='') as catalog_file:
+                reader = csv.DictReader(catalog_file)
+                fieldnames = reader.fieldnames
+
+                if not fieldnames:
+                    raise ValueError("El catálogo de TikTok no tiene encabezados")
+
+                missing_columns = {'sku_id', 'description'} - set(fieldnames)
+                if missing_columns:
+                    missing = ", ".join(sorted(missing_columns))
+                    raise ValueError(f"Faltan columnas obligatorias en el catálogo de TikTok: {missing}")
+
+                rows = []
+                for row in reader:
+                    normalized_row = {field: (row.get(field) or "") for field in fieldnames}
+                    normalized_row['description'] = self.build_rif_description(
+                        normalized_row.get('sku_id'),
+                        normalized_row.get('description', ''),
+                        next_10_events
+                    )
+                    rows.append(normalized_row)
+
+            with tempfile.NamedTemporaryFile(
+                mode='w',
+                encoding='utf-8-sig',
+                newline='',
+                suffix='.csv',
+                delete=False,
+                dir=tempfile.gettempdir()
+            ) as temp_file:
+                writer = csv.DictWriter(temp_file, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(rows)
+                temp_path = Path(temp_file.name)
+
+            self._log(f"Subiendo catálogo TikTok a gs://{bucket_name}/{object_name}")
+            client = storage_client
+            if client is None:
+                from google.cloud import storage
+                client = storage.Client()
+
+            blob = client.bucket(bucket_name).blob(object_name)
+            blob.upload_from_filename(str(temp_path), content_type='text/csv')
+
+            self._log("Catálogo TikTok actualizado y subido exitosamente")
+            return True
+
+        except Exception as error:
+            self._log(f"Error al exportar catálogo TikTok: {error}")
+            return False
+        finally:
+            if temp_path and temp_path.exists():
+                temp_path.unlink()
+
     def run(self):
         """Ejecuta el proceso completo"""
         try:
@@ -389,13 +490,15 @@ class RIFScheduler:
             success_meta = self.update_descriptions(next_10,Config.DESTINATION_SHEET_ID_META,Config.RIF_DEST_RANGE_META,Config.DESTINATION_SHEET_NAME_META,'META')
             self._log("Actualizando plataforma GGL...")
             success_ggl = self.update_descriptions(next_10,Config.DESTINATION_SHEET_ID_GGL,Config.RIF_DEST_RANGE_GGL,Config.DESTINATION_SHEET_NAME_GGL,'GGL')
-            
-            if success_ggl and success_meta:
+            self._log("Actualizando catálogo TikTok...")
+            success_tiktok = self.export_tiktok_catalog(next_10)
+
+            if success_ggl and success_meta and success_tiktok:
                 self._log("Proceso completado exitosamente")
             else:
                 self._log("Error en el proceso")
 
-            return success_meta
+            return success_meta and success_ggl and success_tiktok
             
         except Exception as error:
             self._log(f"Error en el proceso: {error}")

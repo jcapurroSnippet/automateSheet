@@ -23,6 +23,11 @@ class RIFConfig:
     SOURCE_SHEET_NAME = os.getenv('SOURCE_SHEET_NAME', 'Status y Solicitud RIFs')
     DESTINATION_SHEET_NAME_META = os.getenv('DESTINATION_SHEET_NAME_META', 'Worksheet')
     DESTINATION_SHEET_NAME_GGL = os.getenv('DESTINATION_SHEET_NAME_GGL')
+
+    # Catálogo TikTok
+    TIKTOK_CATALOG_SOURCE_FILE = os.getenv('TIKTOK_CATALOG_SOURCE_FILE', 'Catalog_TikTok_from_Meta.csv')
+    TIKTOK_CATALOG_BUCKET = os.getenv('TIKTOK_CATALOG_BUCKET', 'catalogo_tiktok')
+    TIKTOK_CATALOG_OBJECT = os.getenv('TIKTOK_CATALOG_OBJECT', 'Catalog_TikTok_from_Meta.csv')
     
     # Configuración de autenticación
     CREDENTIALS_PATH = os.getenv('CREDENTIALS_PATH', './credentials.json')
