@@ -27,6 +27,9 @@ class RIFConfig:
     # Catálogo TikTok
     TIKTOK_CATALOG_BUCKET = os.getenv('TIKTOK_CATALOG_BUCKET', 'catalogo_tiktok')
     TIKTOK_CATALOG_OBJECT = os.getenv('TIKTOK_CATALOG_OBJECT', 'Catalog_TikTok_from_Meta.csv')
+
+    # Bucket para imágenes de programas RIF
+    IMAGE_BUCKET = os.getenv('IMAGE_BUCKET', 'piezas_programas_udesa')
     
     # Configuración de autenticación
     CREDENTIALS_PATH = os.getenv('CREDENTIALS_PATH', './credentials.json')

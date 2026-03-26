@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python main.py)",
+      "Bash(where python:*)",
+      "Bash(.venv/Scripts/python.exe main.py)",
+      "Bash(\"C:/Users/JuanCapurro/AppData/Local/Programs/Python/Python313/python.exe\" -m venv .venv --clear)",
+      "Bash(.venv/Scripts/pip.exe install:*)",
+      "Bash(.venv/Scripts/pip.exe list:*)",
+      "Bash(.venv/Scripts/python.exe -c \"import flask; print\\(flask.__version__\\)\")"
+    ]
+  }
+}
