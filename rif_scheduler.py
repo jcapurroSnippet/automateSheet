@@ -67,6 +67,11 @@ class RIFScheduler:
         """Devuelve el mapping de eventos adaptado a cada plataforma."""
         platform_events = dict(next_10_events)
 
+        if platform == 'META':
+            # El catálogo Meta usa MBARIF, mientras Google usa MBAO/MBAORIF.
+            if platform_events.get('MBAORIF'):
+                platform_events['MBARIF'] = platform_events['MBAORIF']
+
         if platform == 'GGL':
             for prog, posibles_claves in Config.map_rif.items():
                 for clave in posibles_claves:
@@ -181,8 +186,10 @@ class RIFScheduler:
             self._log("Leyendo datos de RIF...")
             self._log(f"Leyendo rango {Config.RIF_SOURCE_RANGE} del sheet {Config.SOURCE_SHEET_NAME}")
             data = self.sheet_ops.read_sheet(
+                sheet_id=Config.SOURCE_SHEET_ID,
                 range_name=Config.RIF_SOURCE_RANGE,
-                sheet_name=Config.SOURCE_SHEET_NAME
+                sheet_name=Config.SOURCE_SHEET_NAME,
+                source=False,
             )
             
             if not data or len(data) < 2:
@@ -190,8 +197,8 @@ class RIFScheduler:
                 return None
             
             # Procesar datos (asumiendo que la primera fila son encabezados)
-            headers = data[1]
-            rows = data[2:]
+            headers = data[0]
+            rows = data[1:]
             
             self._log(f"Datos leídos: {len(rows)} filas")
             return headers, rows
@@ -209,6 +216,7 @@ class RIFScheduler:
         maestria_idx = None
         fecha_idx = None
         hora_idx = None
+        status_idx = None
         
         for i, header in enumerate(headers):
             header_lower = header.lower()
@@ -216,8 +224,10 @@ class RIFScheduler:
                 maestria_idx = i
             elif 'fecha' in header_lower and 'rif' in header_lower:
                 fecha_idx = i
-            elif 'hora' in header_lower and 'rif' in header_lower:
+            elif 'hora' in header_lower:
                 hora_idx = i
+            elif 'status' in header_lower or 'estado' in header_lower:
+                status_idx = i
         
         if maestria_idx is None or fecha_idx is None or hora_idx is None:
             self._log("No se encontraron las columnas necesarias (maestría, fecha RIF, hora RIF)")
@@ -231,6 +241,12 @@ class RIFScheduler:
             self._log(f"Procesando fila {row_idx + 2}: {row}")
             if len(row) <= max(maestria_idx, fecha_idx, hora_idx):
                 continue
+
+            if status_idx is not None and status_idx < len(row):
+                status = row[status_idx].strip().lower()
+                if status in {'cancelada', 'cancelado'}:
+                    self._log(f"Fila {row_idx + 2} ignorada por estado: {row[status_idx]}")
+                    continue
                 
             maestria = row[maestria_idx].strip() if maestria_idx < len(row) else ""
             fecha_str = row[fecha_idx].strip() if fecha_idx < len(row) else ""
@@ -244,17 +260,24 @@ class RIFScheduler:
             try:
                 fecha_parts = fecha_str.split('/')
                 
-                dia, mes, año = int(fecha_parts[0]), int(fecha_parts[1]), int(fecha_parts[2])+2000 if len(fecha_parts) > 2 else (datetime.now().year)
+                dia, mes = int(fecha_parts[0]), int(fecha_parts[1])
+                if len(fecha_parts) > 2:
+                    año = int(fecha_parts[2])
+                    if año < 100:
+                        año += 2000
+                else:
+                    año = datetime.now().year
                 
                 tz_ar = ZoneInfo("America/Argentina/Buenos_Aires")
                 
+                minuto = 0
                 if ":" in hora_str:
-                    hora = int(hora_str.split(":")[0])
+                    hora, minuto = (int(part) for part in hora_str.split(":", 1))
                 elif "." in hora_str:
-                    hora= int(float(hora_str))
+                    hora, minuto = (int(part) for part in hora_str.split(".", 1))
                 else:
                     hora = int(hora_str)
-                fecha_evento = datetime(año, mes, dia,hora, tzinfo=tz_ar)
+                fecha_evento = datetime(año, mes, dia, hora, minuto, tzinfo=tz_ar)
                 
                 # Si la fecha ya pasó este año, usar el próximo año
                 if fecha_evento < datetime.now(tz=tz_ar) :
@@ -333,6 +356,7 @@ class RIFScheduler:
             'FLRIF': False,
             'FINRIF': False,
             'MBTRIF': False,
+            'MBIRIF': False,
             'OSFLRIF': False,
             'FINORIF': False,
         }
@@ -350,10 +374,7 @@ class RIFScheduler:
             self._log(f"Evaluando evento {maestria} -> {mapped_key} el {future_event['fecha_hora']}")
 
             if rifs_programs[mapped_key] == False:
-                fecha = future_event['fecha'][:5]
-                if fecha[-1] == '/':
-                    fecha = fecha[:-1]
-                    fecha = '0' + fecha
+                fecha = future_event['fecha_hora'].strftime('%d/%m')
                 rifs_programs[mapped_key] = fecha
                 self._log(f"Asignado {future_event['fecha']} a {mapped_key}")
             
@@ -370,6 +391,7 @@ class RIFScheduler:
         # Mapeo de maestrías a IDs (puedes ajustar según tus datos)
         maestria_mapping = {
                 "MBT": "MBTRIF",
+                "MBI": "MBIRIF",
                 "FyL": "FLRIF",
                 "MBA Salud": "MBASRIF",
                 "MIM": "MIMRIF",
@@ -377,10 +399,15 @@ class RIFScheduler:
                 "MKT": "MKTRIF",
                 "MND": "MNDRIF",
                 "MBA's": "MBAORIF",
+                "MBA": "MBAORIF",
                 "EMBA": "EMBARIF",
                 "EMBAs": "EMBARIF",
                 "MOSFL": "OSFLRIF",
+                "OSFL": "OSFLRIF",
                 "MFIN": "FINRIF",
+                "FIN": "FINRIF",
+                "RRHH": "RRHHRIF",
+                "MBA SALUD": "MBASRIF",
                 "MOSFL 2026 Egresados": "OSFLRIF",
                 "Fin&Law": "FLRIF",
                 "MF Online": "FINORIF",

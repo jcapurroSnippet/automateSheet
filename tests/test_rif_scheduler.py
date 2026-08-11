@@ -3,7 +3,7 @@ import io
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from zoneinfo import ZoneInfo
 
 from config_rif import RIFConfig as Config
@@ -140,6 +140,80 @@ class RIFSchedulerTests(unittest.TestCase):
         expected_date = fecha[:5]
         self.assertEqual(result['EMBARIF'], expected_date)
         self.assertEqual(result['REMBARIF'], expected_date)
+
+    def test_select_next_events_maps_mbi_to_mbirif(self):
+        now = datetime.now(tz=ZoneInfo("America/Argentina/Buenos_Aires"))
+        event_date = now + timedelta(days=2)
+
+        result = self.scheduler.select_next_10_events([{
+            'maestria': 'MBI',
+            'fecha': event_date.strftime('%d/%m/%Y'),
+            'hora': '13:00',
+            'fecha_hora': event_date,
+            'row_idx': 2,
+        }])
+
+        self.assertEqual(result['MBIRIF'], event_date.strftime('%d/%m'))
+
+    def test_select_next_events_normalizes_single_digit_dates(self):
+        event_date = datetime(2026, 8, 13, 18, 30, tzinfo=ZoneInfo("America/Argentina/Buenos_Aires"))
+
+        result = self.scheduler.select_next_10_events([{
+            'maestria': 'MBA SALUD',
+            'fecha': '13/8/2026',
+            'hora': '18:30',
+            'fecha_hora': event_date,
+            'row_idx': 2,
+        }])
+
+        self.assertEqual(result['MBASRIF'], '13/08')
+
+    def test_platform_aliases_match_destination_ids(self):
+        events = {
+            'MBAORIF': '13/08',
+            'MBASRIF': '13/08',
+            'REMBARIF': '11/08',
+        }
+
+        meta = self.scheduler.get_platform_events(events, 'META')
+        google = self.scheduler.get_platform_events(events, 'GGL')
+
+        self.assertEqual(meta['MBARIF'], '13/08')
+        self.assertEqual(google['MBAO'], '13/08')
+        self.assertEqual(google['MBAS'], '13/08')
+        self.assertEqual(google['EMBAR'], '11/08')
+
+    def test_read_rif_data_uses_new_consolidado_header_row(self):
+        self.scheduler.sheet_ops = Mock()
+        self.scheduler.sheet_ops.read_sheet.return_value = [
+            ['Maestria', 'Fecha de la RIF', 'Horario'],
+            ['MBA', '13/08/2026', '19'],
+        ]
+
+        headers, rows = self.scheduler.read_rif_data()
+
+        self.assertEqual(headers, ['Maestria', 'Fecha de la RIF', 'Horario'])
+        self.assertEqual(rows, [['MBA', '13/08/2026', '19']])
+        self.scheduler.sheet_ops.read_sheet.assert_called_once_with(
+            sheet_id=Config.SOURCE_SHEET_ID,
+            range_name=Config.RIF_SOURCE_RANGE,
+            sheet_name=Config.SOURCE_SHEET_NAME,
+            source=False,
+        )
+
+    def test_parse_new_consolidado_format_and_skip_cancelled_rows(self):
+        headers = ['Maestria', 'Fecha de la RIF', 'Horario', 'Status']
+        rows = [
+            ['MBA', '13/08/2026', '19', 'Hecho'],
+            ['FIN', '29/10/2026', '13:00', 'Cancelada'],
+        ]
+
+        events = self.scheduler.parse_rif_events(headers, rows)
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]['maestria'], 'MBA')
+        self.assertEqual(events[0]['fecha_hora'].year, 2026)
+        self.assertEqual(events[0]['fecha_hora'].hour, 19)
 
     def test_run_returns_false_when_any_output_fails(self):
         scheduler = RIFScheduler()

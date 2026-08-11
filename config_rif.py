@@ -10,17 +10,18 @@ load_dotenv('config.env')
 
 class RIFConfig:
     # IDs de los sheets
-    SOURCE_SHEET_ID = os.getenv('SOURCE_SHEET_ID', '1RkbgAXnR9bQQSRMUxvXbm_r3m1bnzqIN')
+    SOURCE_SHEET_ID = os.getenv('SOURCE_SHEET_ID', '1dlj12O27VqxGLfTpTG4u4c8C45DFMEthju2dyHb7HZQ')
     DESTINATION_SHEET_ID_META = os.getenv('DESTINATION_SHEET_ID_META')
     DESTINATION_SHEET_ID_GGL = os.getenv('DESTINATION_SHEET_ID_GGL')
     
     # Rangos específicos para RIF
-    RIF_SOURCE_RANGE = os.getenv('RIF_SOURCE_RANGE', 'D:F')  # Rango del sheet con datos de RIF
+    # SOURCE_RANGE se conserva como fallback para instalaciones anteriores.
+    RIF_SOURCE_RANGE = os.getenv('RIF_SOURCE_RANGE', os.getenv('SOURCE_RANGE', 'A:H'))
     RIF_DEST_RANGE_META = os.getenv('RIF_DEST_RANGE_META')      # Rango del sheet destino
     RIF_DEST_RANGE_GGL = os.getenv('RIF_DEST_RANGE_GGL')
     
     # Nombres de las hojas
-    SOURCE_SHEET_NAME = os.getenv('SOURCE_SHEET_NAME', 'Status y Solicitud RIFs')
+    SOURCE_SHEET_NAME = os.getenv('SOURCE_SHEET_NAME', 'Consolidado')
     DESTINATION_SHEET_NAME_META = os.getenv('DESTINATION_SHEET_NAME_META', 'Worksheet')
     DESTINATION_SHEET_NAME_GGL = os.getenv('DESTINATION_SHEET_NAME_GGL')
 
@@ -48,5 +49,7 @@ class RIFConfig:
             "FIN": ["FINRIF"],
             "MBT": ["MBTRIF"],
             "OSFL": ["OSFLRIF"],
+            "MBAS": ["MBASRIF"],
+            "EMBAR": ["REMBARIF"],
         }
     
